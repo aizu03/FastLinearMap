@@ -4,6 +4,7 @@
 #include "LinearMap.h"
 
 #include <cassert>
+#include <chrono>
 #include <iostream>
 #include <random>
 #include <string>
@@ -21,6 +22,8 @@
 #   define NO_OPTIMIZE_BEGIN
 #   define NO_OPTIMIZE_END
 #endif
+
+struct MyVector { std::vector<int> data; };
 
 NO_OPTIMIZE_BEGIN
 static void TestIntMap()
@@ -141,6 +144,88 @@ static void TestIterator()
 }
 NO_OPTIMIZE_END
 
+NO_OPTIMIZE_BEGIN
+void BenchmarkLinearMapVsUnorderedMap()
+{
+    constexpr size_t num_elements = 1000;
+    std::mt19937 rng(1234);
+    std::uniform_int_distribution<size_t> dist(1, num_elements * 10);
+
+    std::vector<size_t> keys(num_elements);
+    for (size_t i = 0; i < num_elements; ++i)
+        keys[i] = dist(rng);
+
+    std::vector<int> values(num_elements);
+    for (size_t i = 0; i < num_elements; ++i)
+        values[i] = (int)i;
+
+    // --- LinearMap ---
+    LinearMap<int> lmap(1024);
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    for (size_t i = 0; i < num_elements; ++i)
+        lmap.Put(keys[i], values[i]);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double linear_put = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    t0 = std::chrono::high_resolution_clock::now();
+    size_t found = 0;
+    for (size_t i = 0; i < num_elements; ++i)
+        if (lmap.Contains(keys[i])) found++;
+    t1 = std::chrono::high_resolution_clock::now();
+    double linear_contains = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    t0 = std::chrono::high_resolution_clock::now();
+    long long sum = 0;
+    for (size_t i = 0; i < num_elements; ++i)
+    {
+        auto val = lmap.Get(keys[i]);
+        if (val) sum += *val;
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double linear_get = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    // sanity check
+    assert(found == num_elements);
+
+    // --- std::unordered_map ---
+    std::unordered_map<size_t, int> umap;
+
+    t0 = std::chrono::high_resolution_clock::now();
+    for (size_t i = 0; i < num_elements; ++i)
+        umap[keys[i]] = values[i];
+    t1 = std::chrono::high_resolution_clock::now();
+    double unordered_put = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    t0 = std::chrono::high_resolution_clock::now();
+    found = 0;
+    for (size_t i = 0; i < num_elements; ++i)
+        if (umap.find(keys[i]) != umap.end()) found++;
+    t1 = std::chrono::high_resolution_clock::now();
+    double unordered_contains = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    t0 = std::chrono::high_resolution_clock::now();
+    sum = 0;
+    for (size_t i = 0; i < num_elements; ++i)
+        sum += umap[keys[i]];
+    t1 = std::chrono::high_resolution_clock::now();
+    double unordered_get = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    assert(found == num_elements);
+
+    // --- Print results neatly ---
+    std::cout << "\n--- Benchmark Results (" << num_elements << " elements) ---\n\n";
+
+    std::cout << "Operation\tLinearMap(ms)\tunordered_map(ms)\tSpeedup\n";
+    std::cout << "Put\t\t" << linear_put << "\t\t" << unordered_put << "\t\t"
+        << unordered_put / linear_put << "x\n";
+    std::cout << "Contains\t" << linear_contains << "\t\t" << unordered_contains << "\t\t"
+        << unordered_contains / linear_contains << "x\n";
+    std::cout << "Get\t\t" << linear_get << "\t\t" << unordered_get << "\t\t"
+        << unordered_get / linear_get << "x\n";
+}
+NO_OPTIMIZE_END
+
 // Run all tests
 static void RunAllTests()
 {
@@ -149,6 +234,7 @@ static void RunAllTests()
     TestRandomStress();
     TestIterator();
     std::cout << "All tests passed successfully!\n";
+    BenchmarkLinearMapVsUnorderedMap();
 }
 
 int main()

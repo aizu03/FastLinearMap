@@ -6,6 +6,75 @@
 #include <fstream>
 #include <optional>
 
+/*
+------------------------------------------------------------------------------
+LinearMap - A Simple Header-Only, Cache-Friendly Linear-Probing Hash Map
+------------------------------------------------------------------------------
+Author: [aizu03]
+License: MIT (free to use, modify, and distribute)
+
+Description:
+------------
+LinearMap is a fast, and bare bones, open-addressing hash map implementation that uses
+*linear probing* rather than the traditional "bucket + linked list" approach
+you find in many standard hash maps.
+
+Why is it faster?
+-----------------
+1. **Cache locality:**
+   All keys, values, and usage flags are stored in contiguous arrays.
+   Once the CPU begins scanning a cache line, subsequent lookups and
+   probes are typically already in cache, drastically reducing the number
+   of random memory accesses compared to pointer-heavy bucket maps.
+
+2. **Predictable memory layout:**
+   There is no heap fragmentation or pointer indirection  just flat arrays.
+   This predictable layout allows modern CPUs to prefetch data more efficiently.
+
+3. **Branch prediction friendly:**
+   Linear probing uses simple loops and tight branches, which compilers
+   and CPUs optimize extremely well.
+
+Trade-offs:
+-----------
+- Slightly higher memory usage due to probe slack and the `m_used[]` flags.
+- When the load factor approaches the threshold (~0.6), performance may degrade;
+  resizing restores O(1) average lookup and insertion.
+
+Examining the assembly shows, for a simple <int> map,
+it only uses 2 comparisons during the search loop, inside the "Get" function. Blazing fast!
+
+In short, LinearMap trades a bit more memory for substantially better
+real-world performance on modern hardware.
+
+All benchmarking was done on a modern mid-range CPU (Ryzen 7 3700x).
+With clang++20 and AVX2 optimizations enabled
+
+
+
+--- Benchmark Results (1000000 elements) ---
+
+Operation       LinearMap(ms)   unordered_map(ms)       Speedup
+Put             50.8429         244.397         4.8069x
+Contains        28.7827         92.914          3.22812x
+Get             42.9095         96.8458         2.25698x
+
+--- Benchmark Results (100000 elements) ---
+
+Operation       LinearMap(ms)   unordered_map(ms)       Speedup
+Put             5.9485          18.9987         3.19386x
+Contains        1.3921          5.0767          3.64679x
+Get             2.1118          7.0732          3.34937x
+
+--- Benchmark Results (1000 elements) ---
+
+Operation       LinearMap(ms)   unordered_map(ms)       Speedup
+Put             0.0239          0.083           3.4728x
+Contains        0.0086          0.0157          1.82558x
+Get             0.0113          0.0152          1.34513x
+
+------------------------------------------------------------------------------
+*/
 
 #if defined(__clang__)
 // Clang/LLVM
@@ -20,47 +89,106 @@
 #define UNREACHABLE() ((void)0) // fallback
 #endif
 
-struct MyVector
-{
-	std::vector<int> data;
-
-
-};
-
-
 template <class Value>
 class LinearMap
 {
 	static constexpr double max_load_factor = 0.6;
 
-	size_t* m_keys;
-	size_t* m_keys_new = nullptr;
-	Value* m_values;
-	Value* m_values_new = nullptr;
-	bool* m_used = nullptr;
-	bool* m_used_new = nullptr;
+	std::unique_ptr<size_t[]> m_keys;
+	std::unique_ptr<Value[]>  m_values;
+	std::unique_ptr<bool[]>   m_used;
+
+	std::unique_ptr<size_t[]> m_keys_new;
+	std::unique_ptr<Value[]>  m_values_new;
+	std::unique_ptr<bool[]>   m_used_new;
+
+	size_t m_count = 0;
+	size_t m_data_size = 0;
 
 public:
 
-	size_t m_count;
-	size_t m_data_size;
-
-	explicit LinearMap(const int size = 128) 
-	{
-		m_count = 0;
-		m_data_size = size;
-		m_keys = new size_t[size]();
-		m_values = new Value[size]();
-		m_used = new bool[size](); 
+	// Default constructor
+	explicit LinearMap(int size = 128)
+		: m_keys(std::make_unique<size_t[]>(size)),
+		m_values(std::make_unique<Value[]>(size)),
+		m_used(std::make_unique<bool[]>(size)),
+		m_count(0),
+		m_data_size(size) {
 	}
 
-	~LinearMap()
+	// Destructor - now defaulted because smart pointers manage memory automatically
+	~LinearMap() = default;
+
+	// Copy constructor (deep copy)
+	LinearMap(const LinearMap& other)
+		: m_keys(std::make_unique<size_t[]>(other.m_data_size)),
+		m_values(std::make_unique<Value[]>(other.m_data_size)),
+		m_used(std::make_unique<bool[]>(other.m_data_size)),
+		m_count(other.m_count),
+		m_data_size(other.m_data_size)
 	{
-		delete[] m_keys;
-		delete[] m_values;
-		delete[] m_used;
+		std::copy_n(other.m_keys.get(), other.m_data_size, m_keys.get());
+		std::copy_n(other.m_values.get(), other.m_data_size, m_values.get());
+		std::copy_n(other.m_used.get(), other.m_data_size, m_used.get());
 	}
 
+	// Copy assignment (deep copy)
+	LinearMap& operator=(const LinearMap& other)
+	{
+		if (this == &other)
+			return *this;
+
+		m_count = other.m_count;
+		m_data_size = other.m_data_size;
+
+		m_keys = std::make_unique<size_t[]>(other.m_data_size);
+		m_values = std::make_unique<Value[]>(other.m_data_size);
+		m_used = std::make_unique<bool[]>(other.m_data_size);
+
+		std::copy_n(other.m_keys.get(), other.m_data_size, m_keys.get());
+		std::copy_n(other.m_values.get(), other.m_data_size, m_values.get());
+		std::copy_n(other.m_used.get(), other.m_data_size, m_used.get());
+
+		return *this;
+	}
+
+	// Move constructor
+	LinearMap(LinearMap&& other) noexcept
+		: m_keys(std::move(other.m_keys)),
+		m_values(std::move(other.m_values)),
+		m_used(std::move(other.m_used)),
+		m_keys_new(std::move(other.m_keys_new)),
+		m_values_new(std::move(other.m_values_new)),
+		m_used_new(std::move(other.m_used_new)),
+		m_count(other.m_count),
+		m_data_size(other.m_data_size)
+	{
+		other.m_count = 0;
+		other.m_data_size = 0;
+	}
+
+	// Move assignment
+	LinearMap& operator=(LinearMap&& other) noexcept
+	{
+		if (this == &other)
+			return *this;
+
+		m_keys = std::move(other.m_keys);
+		m_values = std::move(other.m_values);
+		m_used = std::move(other.m_used);
+
+		m_keys_new = std::move(other.m_keys_new);
+		m_values_new = std::move(other.m_values_new);
+		m_used_new = std::move(other.m_used_new);
+
+		m_count = other.m_count;
+		m_data_size = other.m_data_size;
+
+		other.m_count = 0;
+		other.m_data_size = 0;
+
+		return *this;
+	}
 
 	/*
 	Value* operator[](const size_t key)
@@ -73,6 +201,13 @@ public:
 		//return Get(key);
 	}
 	*/
+
+	void Clear()
+	{
+		// simply reset usage flags and count, but keep allocated memory
+		std::fill_n(m_used.get(), m_data_size, false);
+		m_count = 0;
+	}
 
 	template <typename F>
 	Value& GetOrCreate(const size_t key, F&& create)
@@ -152,6 +287,21 @@ public:
 		}
 	}
 
+	[[nodiscard]] double GetLoadFactor() const
+	{
+		return static_cast<double>(m_count) / static_cast<double>(m_data_size);
+	}
+
+	[[nodiscard]] size_t Size() const
+	{
+		return m_count;
+	}
+
+	[[nodiscard]] size_t Capacity() const
+	{
+		return m_data_size;
+	}
+
 	class Iterator {
 	public:
 		Iterator(size_t* keys, Value* values, bool* used, size_t index, size_t size)
@@ -190,13 +340,12 @@ public:
 	};
 
 	Iterator begin() {
-		return Iterator(m_keys, m_values, m_used, 0, m_data_size);
+		return Iterator(m_keys.get(), m_values.get(), m_used.get(), 0, m_data_size);
 	}
 
 	Iterator end() {
-		return Iterator(m_keys, m_values, m_used, m_data_size, m_data_size);
+		return Iterator(m_keys.get(), m_values.get(), m_used.get(), m_data_size, m_data_size);
 	}
-
 
 private:
 
@@ -204,7 +353,7 @@ private:
 	{
 #if _DEBUG
 		if (key == 0)
-			throw std::exception("Hash key cannot be 0");
+			throw std::exception("Key cannot be 0");
 #endif
 
 		if (key == 0)
@@ -230,7 +379,6 @@ private:
 		const auto start = hash & last_index;
 		return std::make_tuple(start, last_index);
 	}
-
 
 	void Insert(const size_t key, const Value& new_value, size_t i)
 	{
@@ -268,11 +416,13 @@ private:
 	{
 		const auto new_size = m_data_size * 2;
 
-		m_keys_new = new size_t[new_size]();
-		m_values_new = new Value[new_size]();
-		m_used_new = new bool[new_size]();
+		// Allocate new buffers (unique_ptr handles cleanup automatically on re-assignment)
+		m_keys_new = std::make_unique<size_t[]>(new_size);
+		m_values_new = std::make_unique<Value[]>(new_size);
+		m_used_new = std::make_unique<bool[]>(new_size);
 
-		for (size_t i = 0; i < m_data_size; i++)
+		// Rehash and insert existing elements into the new storage
+		for (size_t i = 0; i < m_data_size; ++i)
 		{
 			if (!m_used[i])
 				continue;
@@ -281,18 +431,12 @@ private:
 			PutWithNewSize(m_keys[i], value, new_size);
 		}
 
-		delete[] m_keys;
-		delete[] m_values;
-		delete[] m_used;
+		// Move the new arrays into place
+		m_keys = std::move(m_keys_new);
+		m_values = std::move(m_values_new);
+		m_used = std::move(m_used_new);
 
-		m_keys = m_keys_new;
-		m_values = m_values_new;
-		m_used = m_used_new;
-
-		m_keys_new = nullptr;
-		m_values_new = nullptr;
-		m_used_new = nullptr;
-
+		// Clear temporaries (unique_ptr reset is automatic after move)
 		m_data_size = new_size;
 	}
 
