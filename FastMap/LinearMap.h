@@ -1,11 +1,3 @@
-#pragma once
-#include <tuple>
-#include <vector>
-#include <functional>
-#include <iostream>
-#include <fstream>
-#include <optional>
-
 /*
 ------------------------------------------------------------------------------
 LinearMap - A Simple Header-Only, Cache-Friendly Linear-Probing Hash Map
@@ -76,6 +68,14 @@ Get             0.0113          0.0152          1.34513x
 ------------------------------------------------------------------------------
 */
 
+#pragma once
+#include <tuple>
+#include <functional>
+#include <iostream>
+#include <fstream>
+#include <optional>
+#include <bit>
+
 #if defined(__clang__)
 // Clang/LLVM
 #define UNREACHABLE()  __builtin_unreachable()
@@ -105,15 +105,18 @@ class LinearMap
 	size_t m_count = 0;
 	size_t m_data_size = 0;
 
+	Value default_value{};
+
 public:
 
 	// Default constructor
-	explicit LinearMap(int size = 128)
-		: m_keys(std::make_unique<size_t[]>(size)),
-		m_values(std::make_unique<Value[]>(size)),
-		m_used(std::make_unique<bool[]>(size)),
-		m_count(0),
-		m_data_size(size) {
+	explicit LinearMap(size_t capacity = 128)
+	{
+		capacity = EnsureSize(capacity);
+		m_keys = std::make_unique<size_t[]>(capacity);
+		m_values = std::make_unique<Value[]>(capacity);
+		m_used = std::make_unique<bool[]>(capacity);
+		m_data_size = capacity;
 	}
 
 	// Destructor - now defaulted because smart pointers manage memory automatically
@@ -209,6 +212,47 @@ public:
 		m_count = 0;
 	}
 
+	[[nodiscard]] size_t Size() const
+	{
+		return m_count;
+	}
+
+	[[nodiscard]] size_t Capacity() const
+	{
+		return m_data_size;
+	}
+
+	[[nodiscard]] double GetLoadFactor() const
+	{
+		return static_cast<double>(m_count) / static_cast<double>(m_data_size);
+	}
+
+	[[nodiscard]] bool Contains(const size_t key)
+	{
+		auto [start, last_index] = GetSlot(key, m_data_size);
+		for (auto i = start; ; i = (i + 1) & last_index)
+		{
+			if (!m_used[i])
+				return false;
+
+			if (m_keys[i] == key)
+				return true;
+		}
+	}
+
+	[[nodiscard]] Value& Get(const size_t key)
+	{
+		auto [start, last_index] = GetSlot(key, m_data_size);
+		for (auto i = start;; i = (i + 1) & last_index)
+		{
+			if (!m_used[i])
+				return default_value;
+
+			if (m_keys[i] == key)
+				return m_values[i];
+		}
+	}
+
 	template <typename F>
 	Value& GetOrCreate(const size_t key, F&& create)
 	{
@@ -228,33 +272,8 @@ public:
 		}
 	}
 
-	[[nodiscard]] std::optional<Value> Get(const size_t key)
-	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
-		for (auto i = start;; i = (i + 1) & last_index)
-		{
-			if (!m_used[i])
-				return std::nullopt;
-
-			if (m_keys[i] == key)
-				return m_values[i];
-		}
-	}
-
-	[[nodiscard]] std::optional<std::reference_wrapper<Value>> GetRef(const size_t key)
-	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
-		for (auto i = start;; i = (i + 1) & last_index)
-		{
-			if (!m_used[i])
-				return std::nullopt;
-
-			if (m_keys[i] == key)
-				return m_values[i];
-		}
-	}
-
-	void Put(const size_t key, const Value& value)
+	template <typename T>
+	void Put(const size_t key, T&& value)
 	{
 		auto [start, last_index] = GetSlot(key, m_data_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
@@ -262,44 +281,27 @@ public:
 			if (!m_used[i])
 			{
 				m_used[i] = true;
-				Insert(key, value, i);
+				Insert(key, std::forward<T>(value), i);
 				return;
 			}
 
 			if (m_keys[i] == key)
 			{
-				m_values[i] = value; // no need for std::move on const ref
+				m_values[i] = std::forward<T>(value);
 				return;
 			}
 		}
 	}
 
-	[[nodiscard]] bool Contains(const size_t key) const
+	void Erase(const size_t key)
 	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
-		for (auto i = start; ; i = (i + 1) & last_index)
-		{
-			if (!m_used[i])
-				return false;
-
-			if (m_keys[i] == key)
-				return true;
-		}
+		// TODO: make this
 	}
 
-	[[nodiscard]] double GetLoadFactor() const
-	{
-		return static_cast<double>(m_count) / static_cast<double>(m_data_size);
-	}
+	void Rehash(size_t new_capacity) {
 
-	[[nodiscard]] size_t Size() const
-	{
-		return m_count;
-	}
-
-	[[nodiscard]] size_t Capacity() const
-	{
-		return m_data_size;
+		new_capacity = EnsureSize(new_capacity);
+		Resize(new_capacity);
 	}
 
 	class Iterator {
@@ -351,15 +353,7 @@ private:
 
 	static size_t Hash(const size_t key)
 	{
-#if _DEBUG
-		if (key == 0)
-			throw std::exception("Key cannot be 0");
-#endif
-
-		if (key == 0)
-			UNREACHABLE();
-
-		auto hash = key;
+		auto hash = key + 1; // fix for 0 keys
 		hash ^= hash >> 21;
 		hash ^= hash << 37;
 		hash ^= hash >> 4;
@@ -368,9 +362,9 @@ private:
 		return hash;
 	}
 
-	[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const size_t key, const size_t data_size) const
+	[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const size_t key, const size_t data_size)
 	{
-		if (key == 0 || !m_keys || !m_values)
+		if (!m_keys || !m_values || !m_used)
 			UNREACHABLE();
 
 		const auto hash = Hash(key);
@@ -380,20 +374,28 @@ private:
 		return std::make_tuple(start, last_index);
 	}
 
-	void Insert(const size_t key, const Value& new_value, size_t i)
+	static size_t EnsureSize(size_t n)
+	{
+		n = std::max(n, 8ull); // minimum size
+		const size_t next = 1ull << std::bit_width(n - 1); // next power of two
+		const size_t prev = next >> 1;                          // previous power of two
+		return (n - prev < next - n) ? prev : next;
+	}
+
+	template <typename T>
+	void Insert(const size_t key, T&& new_value, size_t i)
 	{
 		m_keys[i] = key;
-		m_values[i] = std::move(new_value);
+		m_values[i] = std::forward<T>(new_value);
 		m_count++;
 
 		if ((double)m_count / (double)m_data_size > max_load_factor)
-			Resize();
+			Resize(m_data_size * 2);
 	}
 
-	void PutWithNewSize(const size_t key, const Value& value, size_t new_size)
+	void PutWithNewSize(const size_t key, const Value& value, const size_t new_size)
 	{
 		auto [start, last_index] = GetSlot(key, new_size);
-
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
 			if (!m_used_new[i])
@@ -412,10 +414,8 @@ private:
 		}
 	}
 
-	void Resize()
+	void Resize(const size_t new_size)
 	{
-		const auto new_size = m_data_size * 2;
-
 		// Allocate new buffers (unique_ptr handles cleanup automatically on re-assignment)
 		m_keys_new = std::make_unique<size_t[]>(new_size);
 		m_values_new = std::make_unique<Value[]>(new_size);
@@ -440,12 +440,10 @@ private:
 		m_data_size = new_size;
 	}
 
-	void PrintHashDistribution() const
-	{
-		std::cout << m_data_size << "\n";
-
-		if (m_data_size == 65536)
+	//public:
+		void PrintHashDistribution() const
 		{
+			std::cout << m_data_size << "\n";
 			std::ofstream file("F:\\map.txt", std::ios::binary);
 
 			if (!file.is_open())
@@ -460,11 +458,10 @@ private:
 					continue;
 				}
 
-				constexpr char val2[] = {32, 32, 49};
+				constexpr char val2[] = { 32, 32, 49 };
 				file.write(val2, 3);
 			}
 
 			file.close();
 		}
-	}
 };

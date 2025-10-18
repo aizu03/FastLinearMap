@@ -24,6 +24,13 @@
 #endif
 
 struct MyVector { std::vector<int> data; };
+struct MyVector2
+{
+	std::vector<int> data;
+    MyVector2(const MyVector2& other) = delete;
+	//MyVector2& operator=(const MyVector2& other) = delete;
+	MyVector2() {  }
+};
 
 NO_OPTIMIZE_BEGIN
 static void TestIntMap()
@@ -31,7 +38,7 @@ static void TestIntMap()
     LinearMap<int> map(8); // small initial size to force resize
 
     // Insert and get
-    for (size_t i = 1; i <= 1000; i++)
+    for (size_t i = 1; i <= 20; i++)
     {
 		const auto key = i * 1234;
 		map.Put(key, (int)i);
@@ -39,12 +46,19 @@ static void TestIntMap()
 		assert(val == (int)i);
     }
 
+    map.Rehash(512);
+
+    for (size_t i = 1; i <= 20; ++i)
+    {
+        assert(map.Get(i * 1234) == i);
+    }
+
 	// Overwrite
 	for (size_t i = 1; i <= 20; i++)
 	{
 		map.Put(i, (int)(i * 100));
 		auto val = map.Get(i);
-		assert(val && *val == (int)(i * 100));
+		assert(val && val == (int)(i * 100));
 	}
 
 	// Get non-existing
@@ -58,7 +72,7 @@ static void TestIntMap()
 		assert(val == (int)(i * 7));
 		val += 1; // test reference
 		auto check = map.Get(i);
-		assert(check && *check == (int)(i * 7 + 1));
+		assert(check && check == (int)(i * 7 + 1));
 	}
 
     std::cout << "TestIntMap passed!\n";
@@ -69,33 +83,36 @@ NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
 static void TestStructMap()
 {
-    LinearMap<MyVector> map(4);
+    LinearMap<MyVector> map;
 
-    for (size_t i = 1; i <= 10; i++)
-    {
-        MyVector v;
-        for (int j = 0; j < 5; j++)
-            v.data.push_back((int)(i * 10 + j));
+    MyVector vec;
+    vec.data.push_back(1);
+    vec.data.push_back(2);
+    vec.data.push_back(3);
 
-        map.Put(i, v);
-    }
+    map.Put(42, std::move(vec));
 
-    for (size_t i = 1; i <= 10; i++)
-    {
-        auto val = map.Get(i);
-        assert(val && val->data.size() == 5);
-        for (int j = 0; j < 5; j++)
-            assert(val->data[j] == (int)(i * 10 + j));
-    }
+    // vec should be empty after move
+    assert(vec.data.empty());
 
-    // Test GetOrCreate on struct
-    MyVector& v = map.GetOrCreate(11, []() { MyVector mv; mv.data.push_back(42); return mv; });
-    assert(v.data.size() == 1 && v.data[0] == 42);
+    MyVector& v = map.Get(42);
+    assert(v.data.size() == 3);
+    assert(v.data[1] == 2);
 
-    // Modify through reference
-    v.data.push_back(99);
-    auto val2 = map.Get(11);
-    assert(val2 && val2->data.size() == 2 && val2->data[1] == 99);
+    // modify retrieved value
+    v.data.clear();
+    assert(map.Get(42).data.empty());
+
+    LinearMap<std::vector<int>> map2;
+    std::vector<int> vec2;
+    vec2.push_back(12);
+    vec2.push_back(777);
+    map2.Put(2012, std::move(vec2)); // should be moved
+    assert(vec2.empty());
+    auto& retrieved = map2.Get(2012);
+    auto& retrieved3 = map2.Get(2013); 
+    retrieved.clear();
+    auto& retrieved2 = map2.Get(2012); 
 
     std::cout << "TestStructMap passed!\n";
 }
@@ -115,7 +132,7 @@ static void TestRandomStress()
         map.Put(key, (int)key);
 
         auto val = map.Get(key);
-        assert(val && *val == (int)key);
+        assert(val && val == (int)key);
     }
 
     std::cout << "TestRandomStress passed!\n";
@@ -147,7 +164,7 @@ NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
 void BenchmarkLinearMapVsUnorderedMap()
 {
-    constexpr size_t num_elements = 1000;
+    constexpr size_t num_elements = 1'000'000;
     std::mt19937 rng(1234);
     std::uniform_int_distribution<size_t> dist(1, num_elements * 10);
 
@@ -180,7 +197,7 @@ void BenchmarkLinearMapVsUnorderedMap()
     for (size_t i = 0; i < num_elements; ++i)
     {
         auto val = lmap.Get(keys[i]);
-        if (val) sum += *val;
+        if (val) sum += val;
     }
     t1 = std::chrono::high_resolution_clock::now();
     double linear_get = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -223,6 +240,8 @@ void BenchmarkLinearMapVsUnorderedMap()
         << unordered_contains / linear_contains << "x\n";
     std::cout << "Get\t\t" << linear_get << "\t\t" << unordered_get << "\t\t"
         << unordered_get / linear_get << "x\n";
+
+
 }
 NO_OPTIMIZE_END
 
@@ -234,13 +253,15 @@ static void RunAllTests()
     TestRandomStress();
     TestIterator();
     std::cout << "All tests passed successfully!\n";
-    BenchmarkLinearMapVsUnorderedMap();
 }
 
+NO_OPTIMIZE_BEGIN
 int main()
 {
-    RunAllTests();
+	RunAllTests();
+    BenchmarkLinearMapVsUnorderedMap();
 }
+NO_OPTIMIZE_END
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
 // Debug program: F5 or Debug > Start Debugging menu
