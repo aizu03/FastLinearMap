@@ -1,6 +1,7 @@
 // FastMap.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+// ReSharper disable CppClangTidyMiscUseAnonymousNamespace
 #include "LinearMap.h"
 
 #include <cassert>
@@ -24,18 +25,17 @@
 #endif
 
 struct MyVector { std::vector<int> data; };
-struct MyVector2
-{
-	std::vector<int> data;
-    MyVector2(const MyVector2& other) = delete;
-	//MyVector2& operator=(const MyVector2& other) = delete;
-	MyVector2() {  }
-};
 
 NO_OPTIMIZE_BEGIN
 static void TestIntMap()
 {
     LinearMap<int> map(8); // small initial size to force resize
+
+    auto val = map.GetOrCreate(1, []
+    {
+	    return 99887;
+    });
+    assert(val == 99887);
 
     // Insert and get
     for (size_t i = 1; i <= 20; i++)
@@ -161,8 +161,29 @@ static void TestIterator()
 }
 NO_OPTIMIZE_END
 
+// Erase test
 NO_OPTIMIZE_BEGIN
-void BenchmarkLinearMapVsUnorderedMap()
+static void TestErase()
+{
+    LinearMap<int> map(8);
+    for (size_t i = 1; i <= 28; i++)
+    {
+	    map.Put(i, i * 2);
+    }
+
+    assert(map.Get(2) == 4);
+    map.Erase(2);
+	assert(!map.Get(2)); // 2 and 8 share same hash index
+    assert(map.Get(8) == 16);
+
+    map.Clear();
+
+    std::cout << "TestErase passed!\n";
+}
+NO_OPTIMIZE_END
+
+NO_OPTIMIZE_BEGIN
+static void BenchmarkLinearMapVsUnorderedMap()
 {
     constexpr size_t num_elements = 1'000'000;
     std::mt19937 rng(1234);
@@ -252,14 +273,17 @@ static void RunAllTests()
     TestStructMap();
     TestRandomStress();
     TestIterator();
+    TestErase();
     std::cout << "All tests passed successfully!\n";
 }
 
 NO_OPTIMIZE_BEGIN
 int main()
 {
-	RunAllTests();
-    BenchmarkLinearMapVsUnorderedMap();
+    LinearMap<std::string> map;
+    auto& str1 = map.GetOrCreate(1, "Hello1"); // Ok
+    RunAllTests();
+	//BenchmarkLinearMapVsUnorderedMap();
 }
 NO_OPTIMIZE_END
 

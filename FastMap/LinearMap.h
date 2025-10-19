@@ -75,6 +75,8 @@ Get             0.0113          0.0152          1.34513x
 #include <fstream>
 #include <optional>
 #include <bit>
+#include <algorithm>
+#include <iomanip>
 
 #if defined(__clang__)
 // Clang/LLVM
@@ -105,7 +107,7 @@ class LinearMap
 	size_t m_count = 0;
 	size_t m_data_size = 0;
 
-	Value default_value{};
+	Value default_value{}; // never modify this
 
 public:
 
@@ -207,8 +209,9 @@ public:
 
 	void Clear()
 	{
-		// simply reset usage flags and count, but keep allocated memory
+		// empty out, and keep allocated memory
 		std::fill_n(m_used.get(), m_data_size, false);
+		std::fill_n(m_keys.get(), m_data_size, 0);
 		m_count = 0;
 	}
 
@@ -222,12 +225,12 @@ public:
 		return m_data_size;
 	}
 
-	[[nodiscard]] double GetLoadFactor() const
+	[[nodiscard]] double LoadFactor() const
 	{
 		return static_cast<double>(m_count) / static_cast<double>(m_data_size);
 	}
 
-	[[nodiscard]] bool Contains(const size_t key)
+	[[nodiscard]] bool Contains(const size_t key) const
 	{
 		auto [start, last_index] = GetSlot(key, m_data_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
@@ -253,23 +256,20 @@ public:
 		}
 	}
 
-	template <typename F>
+	template <typename F> requires std::is_invocable_v<F>
 	Value& GetOrCreate(const size_t key, F&& create)
 	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
-		for (auto i = start; ; i = (i + 1) & last_index)
-		{
-			if (!m_used[i])
-			{
-				m_used[i] = true;
-				Value new_value = std::invoke(std::forward<F>(create)); // get value
-				Insert(key, new_value, i); // move into slot
-				return m_values[i]; // return after insert
-			}
+		return GetOrCreateImpl(key, std::invoke(std::forward<F>(create)));
+	}
 
-			if (m_keys[i] == key)
-				return m_values[i];
-		}
+	Value& GetOrCreate(const size_t key, const Value& v)
+	{
+		return GetOrCreateImpl(key, v);
+	}
+
+	Value& GetOrCreate(const size_t key, Value&& v)
+	{
+		return GetOrCreateImpl(key, std::move(v));
 	}
 
 	template <typename T>
@@ -293,14 +293,105 @@ public:
 		}
 	}
 
-	void Erase(const size_t key)
+	bool Erase(const size_t key)
 	{
-		// TODO: make this
+		auto print_array = [this]<typename T>(bool before, std::unique_ptr<T>&arr) -> void
+		{
+			std::cout << (before ? "Before: " : "After:  ");
+			for (size_t i = 0; i < m_data_size; i++)
+				std::cout << std::setfill('0') << std::setw(2) << arr[i] << ' ';
+
+			std::cout << "\n";
+		};
+
+		auto [start, last_index] = GetSlot(key, m_data_size);
+		auto home = start;
+		auto keys_above = 0;
+
+		if (!m_used[start])
+			return false; // key not found
+
+		// count how many keys above home index, have same home index (count items in "bucket")
+		for (auto i = (start + 1);; i = (i + 1) & last_index)
+		{
+			const auto key_other = m_keys[i];
+			auto [start_other, last_index_other] = GetSlot(key_other, m_data_size);
+			if (start_other != home)
+				break;
+			++keys_above;
+		}
+
+		m_count--;
+
+		// [0,0,0,0,0,0,0,0,0,0]
+		// [0,0,0,4,5,6,7,8,9,0]
+		// [0,0,0,D,E,F,G,H,I,J]
+
+		if (keys_above == 0)
+		{
+			// Example with index 4 as home
+			// Case: Only 1 item
+			//
+			// [0,0,0,1,0,0,0,0,0,0]
+			// [0,0,0,4,5,6,7,8,9,0]
+			// [0,0,0,D,E,F,G,H,I,J]
+			//
+			// [0,0,0,0,0,0,0,0,0,0] just becomes 0 at all index 4
+			// [0,0,0,0,5,6,7,8,9,0]
+			// [0,0,0,0,E,F,G,H,I,J]
+
+			m_used[home] = false;
+			m_keys[home] = 0;
+			m_values[home] = default_value;
+			return true;
+		}
+
+		// Example with index 4 as home
+		// Case: 3 entries
+		//
+		// [0,0,0,1,1,1,0,0,0,0]
+		// [0,0,0,4,5,6,7,8,9,0]
+		// [0,0,0,D,E,F,G,H,I,J]
+		//
+		// [0,0,0,1,1,1,0,0,0,0] // move index 5 and 6 first
+		// [0,0,0,5,6,6,7,8,9,0]
+		// [0,0,0,E,F,F,G,H,I,J]
+
+		auto target = home;
+		auto len = keys_above;
+		auto end = home + len + 1;
+
+		auto used = m_used.get();
+		auto keys = m_keys.get();
+		auto values = m_values.get();
+
+		std::shift_left(used + target, used + end, 1);
+		std::shift_left(keys + target, keys + end, 1);
+		std::shift_left(values + target, values + end, 1);
+
+		// [0,0,0,1,1,0,0,0,0,0] // delete last entry home + keys_above
+		// [0,0,0,5,6,0,7,8,9,0]
+		// [0,0,0,E,F,0,G,H,I,J]
+
+		keys[home + len] = 0;
+		values[home + len] = default_value;
+		used[home + len] = false;
+
+		/*print_array(false, m_used);
+		print_array(false, m_keys);
+		print_array(false, m_values);
+		*/
+
+		return true;
 	}
 
 	void Rehash(size_t new_capacity) {
 
 		new_capacity = EnsureSize(new_capacity);
+
+		if (new_capacity < m_count)
+			throw std::out_of_range("New capacity is smaller than the current size of the map");
+
 		Resize(new_capacity);
 	}
 
@@ -351,35 +442,30 @@ public:
 
 private:
 
-	static size_t Hash(const size_t key)
+	Value& GetOrCreateImpl(const size_t key, Value&& new_value)
 	{
-		auto hash = key + 1; // fix for 0 keys
-		hash ^= hash >> 21;
-		hash ^= hash << 37;
-		hash ^= hash >> 4;
-		hash *= 0x165667919E3779F9ULL;
-		hash ^= hash >> 32;
-		return hash;
+		auto [start, last_index] = GetSlot(key, m_data_size);
+		for (auto i = start; ; i = (i + 1) & last_index)
+		{
+			if (!m_used[i])
+			{
+				m_used[i] = true;
+				Insert(key, std::move(new_value), i);
+				return m_values[i]; // return after insert
+			}
+
+			if (m_keys[i] == key)
+				return m_values[i];
+		}
 	}
 
-	[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const size_t key, const size_t data_size)
+	[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const size_t key, const size_t data_size) const
 	{
-		if (!m_keys || !m_values || !m_used)
-			UNREACHABLE();
-
 		const auto hash = Hash(key);
 		const auto size = data_size;
 		const auto last_index = size - 1;
 		const auto start = hash & last_index;
 		return std::make_tuple(start, last_index);
-	}
-
-	static size_t EnsureSize(size_t n)
-	{
-		n = std::max(n, 8ull); // minimum size
-		const size_t next = 1ull << std::bit_width(n - 1); // next power of two
-		const size_t prev = next >> 1;                          // previous power of two
-		return (n - prev < next - n) ? prev : next;
 	}
 
 	template <typename T>
@@ -393,8 +479,30 @@ private:
 			Resize(m_data_size * 2);
 	}
 
+	static size_t Hash(const size_t key)
+	{
+		auto hash = key + 1; // fix for 0 keys
+		hash ^= hash >> 21;
+		hash ^= hash << 37;
+		hash ^= hash >> 4;
+		hash *= 0x165667919E3779F9ULL;
+		hash ^= hash >> 32;
+		return hash;
+	}
+
+	static size_t EnsureSize(size_t n)
+	{
+		n = std::max(n, 8ull); // minimum size
+		const size_t next = 1ull << std::bit_width(n - 1); // next power of two
+		const size_t prev = next >> 1;                          // previous power of two
+		return (n - prev < next - n) ? prev : next;
+	}
+
 	void PutWithNewSize(const size_t key, const Value& value, const size_t new_size)
 	{
+		if (!m_used_new || !m_keys_new || !m_values_new)
+			UNREACHABLE();
+
 		auto [start, last_index] = GetSlot(key, new_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
@@ -440,8 +548,7 @@ private:
 		m_data_size = new_size;
 	}
 
-	//public:
-		void PrintHashDistribution() const
+	void PrintHashDistribution() const
 		{
 			std::cout << m_data_size << "\n";
 			std::ofstream file("F:\\map.txt", std::ios::binary);
