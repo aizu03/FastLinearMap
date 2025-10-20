@@ -107,12 +107,11 @@ class LinearMap
 	size_t m_count = 0;
 	size_t m_data_size = 0;
 
-	Value default_value{}; // never modify this
+	Value m_default{}; // never modify this
 
 public:
 
-	// Default constructor
-	explicit LinearMap(size_t capacity = 128)
+	explicit LinearMap(size_t capacity = 128) // Default constructor
 	{
 		capacity = EnsureSize(capacity);
 		m_keys = std::make_unique<size_t[]>(capacity);
@@ -121,11 +120,9 @@ public:
 		m_data_size = capacity;
 	}
 
-	// Destructor - now defaulted because smart pointers manage memory automatically
-	~LinearMap() = default;
+	~LinearMap() = default; // Destructor - now defaulted because smart pointers manage memory automatically
 
-	// Copy constructor (deep copy)
-	LinearMap(const LinearMap& other)
+	LinearMap(const LinearMap& other) // Copy constructor (deep copy)
 		: m_keys(std::make_unique<size_t[]>(other.m_data_size)),
 		m_values(std::make_unique<Value[]>(other.m_data_size)),
 		m_used(std::make_unique<bool[]>(other.m_data_size)),
@@ -137,8 +134,7 @@ public:
 		std::copy_n(other.m_used.get(), other.m_data_size, m_used.get());
 	}
 
-	// Copy assignment (deep copy)
-	LinearMap& operator=(const LinearMap& other)
+	LinearMap& operator=(const LinearMap& other) // Copy assignment (deep copy)
 	{
 		if (this == &other)
 			return *this;
@@ -157,8 +153,7 @@ public:
 		return *this;
 	}
 
-	// Move constructor
-	LinearMap(LinearMap&& other) noexcept
+	LinearMap(LinearMap&& other) noexcept // Move constructor
 		: m_keys(std::move(other.m_keys)),
 		m_values(std::move(other.m_values)),
 		m_used(std::move(other.m_used)),
@@ -172,8 +167,7 @@ public:
 		other.m_data_size = 0;
 	}
 
-	// Move assignment
-	LinearMap& operator=(LinearMap&& other) noexcept
+	LinearMap& operator=(LinearMap&& other) noexcept // Move assignment
 	{
 		if (this == &other)
 			return *this;
@@ -194,18 +188,6 @@ public:
 
 		return *this;
 	}
-
-	/*
-	Value* operator[](const size_t key)
-	{
-		return Get(key);
-	}
-
-	const Value* operator[](const size_t key) const
-	{
-		//return Get(key);
-	}
-	*/
 
 	void Clear()
 	{
@@ -249,7 +231,7 @@ public:
 		for (auto i = start;; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
-				return default_value;
+				return m_default;
 
 			if (m_keys[i] == key)
 				return m_values[i];
@@ -280,7 +262,6 @@ public:
 		{
 			if (!m_used[i])
 			{
-				m_used[i] = true;
 				Insert(key, std::forward<T>(value), i);
 				return;
 			}
@@ -293,9 +274,26 @@ public:
 		}
 	}
 
+	template <typename... Args>
+	bool TryEmplace(const size_t key, Args&&... args)
+	{
+		auto [start, last_index] = GetSlot(key, m_data_size);
+		for (auto i = start;; i = (i + 1) & last_index)
+		{
+			if (!m_used[i])
+			{
+				Insert(key, Value(std::forward<Args>(args)...), i);
+				return true; // inserted successfully
+			}
+
+			if (m_keys[i] == key)
+				return false; // key already present
+		}
+	}
+
 	bool Erase(const size_t key)
 	{
-		auto print_array = [this]<typename T>(bool before, std::unique_ptr<T>&arr) -> void
+		auto print_array = [this]<typename T>(const bool before, std::unique_ptr<T>&arr) -> void
 		{
 			std::cout << (before ? "Before: " : "After:  ");
 			for (size_t i = 0; i < m_data_size; i++)
@@ -303,85 +301,105 @@ public:
 
 			std::cout << "\n";
 		};
-
-		auto [start, last_index] = GetSlot(key, m_data_size);
-		auto home = start;
-		auto keys_above = 0;
-
-		if (!m_used[start])
-			return false; // key not found
-
-		// count how many keys above home index, have same home index (count items in "bucket")
-		for (auto i = (start + 1);; i = (i + 1) & last_index)
+		auto print_arrays = [this, print_array](const bool before) -> void
 		{
-			const auto key_other = m_keys[i];
-			auto [start_other, last_index_other] = GetSlot(key_other, m_data_size);
-			if (start_other != home)
-				break;
-			++keys_above;
-		}
-
-		m_count--;
+			print_array(before, m_used);
+			print_array(before, m_keys);
+			//print_array(before, m_values);
 
 		// [0,0,0,0,0,0,0,0,0,0]
 		// [0,0,0,4,5,6,7,8,9,0]
 		// [0,0,0,D,E,F,G,H,I,J]
 
+		};
+
+		auto [start, last_index] = GetSlot(key, m_data_size);
+		auto inc = 0; // offset to start index
+		for (auto i = start;; i = (i + 1) & last_index)
+		{
+			if (!m_used[i])
+				return false; // key not found
+
+			if (m_keys[i] == key)
+				break;
+			++inc;
+		}
+
+		start += inc; // adjust start index
+		auto keys_above = 0; // number of keys above start index, with same start index (same bucket)
+		for (auto i = (start + 1);; i = (i + 1) & last_index)
+		{
+			const auto used = m_used[i];
+			auto [start_other, _] = GetSlot(m_keys[i], m_data_size);
+			start_other += (0xFFFFFFFFFFFFFFFF - m_data_size) * (1 - used); // if not used, break loop
+			if (start_other != start)
+				break;
+
+			++keys_above;
+		}
+
 		if (keys_above == 0)
 		{
 			// Example with index 4 as home
-			// Case: Only 1 item
+			// Case: 0 keys above
 			//
 			// [0,0,0,1,0,0,0,0,0,0]
 			// [0,0,0,4,5,6,7,8,9,0]
 			// [0,0,0,D,E,F,G,H,I,J]
 			//
-			// [0,0,0,0,0,0,0,0,0,0] just becomes 0 at all index 4
+			//        v
+			// [0,0,0,0,0,0,0,0,0,0] just empty out index 4
 			// [0,0,0,0,5,6,7,8,9,0]
 			// [0,0,0,0,E,F,G,H,I,J]
 
-			m_used[home] = false;
-			m_keys[home] = 0;
-			m_values[home] = default_value;
+			m_used[start] = false;
+			m_keys[start] = 0;
+			m_values[start] = m_default;
+			m_count--;
 			return true;
 		}
 
-		// Example with index 4 as home
-		// Case: 3 entries
+		// Example with index 4 as origin
+		// Case: 2 keys above
 		//
 		// [0,0,0,1,1,1,0,0,0,0]
 		// [0,0,0,4,5,6,7,8,9,0]
 		// [0,0,0,D,E,F,G,H,I,J]
 		//
-		// [0,0,0,1,1,1,0,0,0,0] // move index 5 and 6 first
+		//        v v < 
+		// [0,0,0,1,1,1,0,0,0,0] // move index 5 and 6, one to the left 
 		// [0,0,0,5,6,6,7,8,9,0]
 		// [0,0,0,E,F,F,G,H,I,J]
 
-		auto target = home;
-		auto len = keys_above;
-		auto end = home + len + 1;
+		int count = 0;
 
-		auto used = m_used.get();
-		auto keys = m_keys.get();
-		auto values = m_values.get();
+		//print_arrays(true);
 
-		std::shift_left(used + target, used + end, 1);
-		std::shift_left(keys + target, keys + end, 1);
-		std::shift_left(values + target, values + end, 1);
+		for (auto i = start;; i = (i + 1) & last_index)
+		{
+			auto next = (i + 1) & last_index;
+			m_used[i] = m_used[next];
+			m_keys[i] = m_keys[next];
+			m_values[i] = std::move(m_values[next]);
 
-		// [0,0,0,1,1,0,0,0,0,0] // delete last entry home + keys_above
+			++count;
+			if (count >= keys_above)
+				break;
+		}
+
+		//            v
+		// [0,0,0,1,1,0,0,0,0,0] // delete last entry
 		// [0,0,0,5,6,0,7,8,9,0]
 		// [0,0,0,E,F,0,G,H,I,J]
 
-		keys[home + len] = 0;
-		values[home + len] = default_value;
-		used[home + len] = false;
+		const auto last_entry = (start + keys_above) & last_index;
+		m_keys[last_entry] = 0;
+		m_values[last_entry] = m_default;
+		m_used[last_entry] = false;
 
-		/*print_array(false, m_used);
-		print_array(false, m_keys);
-		print_array(false, m_values);
-		*/
+		//print_arrays(false);
 
+		m_count--;
 		return true;
 	}
 
@@ -449,7 +467,6 @@ private:
 		{
 			if (!m_used[i])
 			{
-				m_used[i] = true;
 				Insert(key, std::move(new_value), i);
 				return m_values[i]; // return after insert
 			}
@@ -471,6 +488,7 @@ private:
 	template <typename T>
 	void Insert(const size_t key, T&& new_value, size_t i)
 	{
+		m_used[i] = true;
 		m_keys[i] = key;
 		m_values[i] = std::forward<T>(new_value);
 		m_count++;

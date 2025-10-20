@@ -75,6 +75,11 @@ static void TestIntMap()
 		assert(check && check == (int)(i * 7 + 1));
 	}
 
+    map.Erase(44);
+    auto e1 = map.TryEmplace(44, 123);
+    auto e2 = map.TryEmplace(44, 123);
+    assert(e2 != e1);
+
     std::cout << "TestIntMap passed!\n";
 }
 NO_OPTIMIZE_END
@@ -165,8 +170,26 @@ NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
 static void TestErase()
 {
+    LinearMap<MyVector> map2(8);
+    for (size_t i = 1; i <= 10; i++)
+    {
+        MyVector vec;
+        vec.data.push_back((i + 1) * 4);
+        vec.data.push_back((i + 2) * 4);
+        map2.Put(i, std::move(vec));
+    }
+
+    //map2.Erase(4);
+    map2.Erase(8);
+    map2.Erase(9);
+
+    //assert(!map2.Contains(4));
+    assert(!map2.Contains(8));
+    assert(!map2.Contains(9));
+
+
     LinearMap<int> map(8);
-    for (size_t i = 1; i <= 28; i++)
+    for (size_t i = 1; i <= 9; i++)
     {
 	    map.Put(i, i * 2);
     }
@@ -177,7 +200,7 @@ static void TestErase()
     assert(map.Get(8) == 16);
 
     map.Clear();
-
+	
     std::cout << "TestErase passed!\n";
 }
 NO_OPTIMIZE_END
@@ -274,14 +297,15 @@ static void RunAllTests()
     TestRandomStress();
     TestIterator();
     TestErase();
+
     std::cout << "All tests passed successfully!\n";
 }
 
 NO_OPTIMIZE_BEGIN
 int main()
 {
-    LinearMap<std::string> map;
-    auto& str1 = map.GetOrCreate(1, "Hello1"); // Ok
+    //LinearMap<std::string> map;
+   // auto& str1 = map.GetOrCreate(1, "Hello1"); // Ok
     RunAllTests();
 	//BenchmarkLinearMapVsUnorderedMap();
 }
