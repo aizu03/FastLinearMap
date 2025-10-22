@@ -50,19 +50,12 @@ With clang++20 and AVX2 optimizations enabled
 
 ------------------------------------------------------------------------------
 
---- Benchmark Results (1000000 elements, worst case) ---
+--- Benchmark Results (1000000 elements) ---
 
 Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Put             56.1734         268.243					4.77527x
-Contains        28.9808         85.7891					2.9602x
-Get             35.2056         285.644					8.1136x
-
---- Benchmark Results (1000000 elements, best case) ---
-
-Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Put             50.8429         244.397					4.8069x
-Contains        28.7827         92.914					3.22812x
-Get             42.9095         96.8458					2.25698x
+Put             54.6472         255.393         4.67348x
+Contains        33.31           148.945         4.47148x
+Get             32.7068         357.055         10.9168x
 
 ------------------------------------------------------------------------------
 */
@@ -642,11 +635,11 @@ private:
 };*/
 
 template <class T>
-class UnitTest : public LinearGenericMap<size_t, T>
+class LinearMap : public LinearGenericMap<size_t, T>
 {
 public:
 
-	explicit UnitTest(size_t capacity = 128)
+	explicit LinearMap(size_t capacity = 128)
 	: LinearGenericMap<size_t, T>(capacity, &IntHash)
 	{
 	}
@@ -663,7 +656,7 @@ private:
 
 
 template <class T>
-class DebugMap : public UnitTest<T>
+class DebugMap : public LinearMap<T>
 {
 
 public:
