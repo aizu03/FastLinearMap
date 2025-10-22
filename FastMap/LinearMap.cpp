@@ -226,13 +226,16 @@ static void BenchmarkLinearMapVsUnorderedMap()
     auto t0 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < num_elements; ++i)
         lmap.Put(keys[i], values[i]);
+
     auto t1 = std::chrono::high_resolution_clock::now();
     double linear_put = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
     t0 = std::chrono::high_resolution_clock::now();
     size_t found = 0;
     for (size_t i = 0; i < num_elements; ++i)
-        if (lmap.Contains(keys[i])) found++;
+        if (lmap.Contains(i))
+            found++;
+
     t1 = std::chrono::high_resolution_clock::now();
     double linear_contains = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
@@ -240,9 +243,11 @@ static void BenchmarkLinearMapVsUnorderedMap()
     long long sum = 0;
     for (size_t i = 0; i < num_elements; ++i)
     {
-        auto val = lmap.Get(keys[i]);
-        if (val) sum += val;
+        auto val = lmap.Get(i);
+        if (val) 
+            sum += val;
     }
+
     t1 = std::chrono::high_resolution_clock::now();
     double linear_get = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
@@ -255,20 +260,24 @@ static void BenchmarkLinearMapVsUnorderedMap()
     t0 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < num_elements; ++i)
         umap[keys[i]] = values[i];
+
     t1 = std::chrono::high_resolution_clock::now();
     double unordered_put = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
     t0 = std::chrono::high_resolution_clock::now();
     found = 0;
     for (size_t i = 0; i < num_elements; ++i)
-        if (umap.find(keys[i]) != umap.end()) found++;
+        if (umap.contains(i))
+            found++;
+
     t1 = std::chrono::high_resolution_clock::now();
     double unordered_contains = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
     t0 = std::chrono::high_resolution_clock::now();
     sum = 0;
     for (size_t i = 0; i < num_elements; ++i)
-        sum += umap[keys[i]];
+        sum += umap[i];
+
     t1 = std::chrono::high_resolution_clock::now();
     double unordered_get = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
@@ -301,13 +310,44 @@ static void RunAllTests()
     std::cout << "All tests passed successfully!\n";
 }
 
+static size_t Hasher(const double& key)
+{
+    return std::hash<double>{}(key);
+}
+
 NO_OPTIMIZE_BEGIN
 int main()
 {
-    //LinearMap<std::string> map;
-   // auto& str1 = map.GetOrCreate(1, "Hello1"); // Ok
+#if _DEBUG
+
+    LinearGenericMap<double, int> map_double(&Hasher);
+    map_double.Put(3.14, 22);
     RunAllTests();
-	//BenchmarkLinearMapVsUnorderedMap();
+
+    LinearGenericMap<std::string, int> map2(8, [](const std::string& str)
+        {
+            return std::hash<std::string>{}(str);
+        });
+
+    std::cout << (map2.Contains("Test!") ? "Yes" : "No") << "\n";
+    map2.Put("Test!", 15);
+    std::cout << (map2.Contains("Test!") ? "Yes" : "No") << "\n";
+
+    LinearMap<int> map(8);
+    map.Put(1, 99);
+    map.GetOrCreate(1, []
+        {
+            return 123;
+        });
+
+    map.GetOrCreate(1, 123);
+    constexpr auto lvalue = 456;
+    map.GetOrCreate(1, lvalue);
+
+
+#else
+    BenchmarkLinearMapVsUnorderedMap();
+#endif
 }
 NO_OPTIMIZE_END
 

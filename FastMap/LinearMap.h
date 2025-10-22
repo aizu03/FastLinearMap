@@ -42,28 +42,21 @@ real-world performance on modern hardware.
 All benchmarking was done on a modern mid-range CPU (Ryzen 7 3700x).
 With clang++20 and AVX2 optimizations enabled
 
+------------------------------------------------------------------------------
 
-
---- Benchmark Results (1000000 elements) ---
-
-Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Put             50.8429         244.397         4.8069x
-Contains        28.7827         92.914          3.22812x
-Get             42.9095         96.8458         2.25698x
-
---- Benchmark Results (100000 elements) ---
+--- Benchmark Results (1000000 elements, worst case) ---
 
 Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Put             5.9485          18.9987         3.19386x
-Contains        1.3921          5.0767          3.64679x
-Get             2.1118          7.0732          3.34937x
+Put             56.1734         268.243					4.77527x
+Contains        28.9808         85.7891					2.9602x
+Get             35.2056         285.644					8.1136x
 
---- Benchmark Results (1000 elements) ---
+--- Benchmark Results (1000000 elements, best case) ---
 
 Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Put             0.0239          0.083           3.4728x
-Contains        0.0086          0.0157          1.82558x
-Get             0.0113          0.0152          1.34513x
+Put             50.8429         244.397					4.8069x
+Contains        28.7827         92.914					3.22812x
+Get             42.9095         96.8458					2.25698x
 
 ------------------------------------------------------------------------------
 */
@@ -78,53 +71,109 @@ Get             0.0113          0.0152          1.34513x
 #include <algorithm>
 #include <iomanip>
 
-#if defined(__clang__)
-// Clang/LLVM
-#define UNREACHABLE()  __builtin_unreachable()
+
+#if defined(__clang__) or defined(__GNUC__)
+#define unreachable()  __builtin_unreachable()
 #elif defined(_MSC_VER)
-// Microsoft Visual C++
-#define UNREACHABLE() __assume(0)
-#elif defined(__GNUC__)
-// GCC (optional, same as clang for most cases)
-#define UNREACHABLE()  __builtin_unreachable()
+#define unreachable() __assume(0)
 #else
-#define UNREACHABLE() ((void)0) // fallback
+#define unreachable() ((void)0) // fallback
 #endif
 
-template <class Value>
-class LinearMap
+template <class K, class V>
+class LinearHash
+{
+
+public:
+
+	size_t(*m_hash)(const K&);
+
+	[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const K& key, const size_t data_size)
+	{
+		if (!m_hash)
+			unreachable();
+
+		const size_t hash = HashImpl(m_hash(key));
+		const auto size = data_size;
+
+#if defined(__clang__) or defined(__GNUC__)
+		__builtin_assume(size != 0 && (size & (size - 1)) == 0); // always power of two
+#endif
+
+		const auto last_index = size - 1;
+		const auto start = hash & last_index;
+		return std::make_tuple(start, last_index);
+	}
+
+	static size_t HashImpl(const size_t n)
+	{
+		// TODO: Test better hashes
+
+		auto hash = n + 1; // fix for 0 keys
+		hash ^= hash >> 21;
+		hash ^= hash << 37;
+		hash ^= hash >> 4;
+		hash *= 0x165667919E3779F9ULL;
+		hash ^= hash >> 32;
+		return hash;
+	}
+
+	static size_t EnsureSize(size_t n)
+	{
+		n = std::max(n, 8ull); // minimum size
+		const size_t next = 1ull << std::bit_width(n - 1); // next power of two
+		const size_t prev = next >> 1;                          // previous power of two
+		return (n - prev < next - n) ? prev : next;
+	}
+};
+
+template <class K, class V>
+class LinearGenericMap : public LinearHash<K, V>
 {
 	static constexpr double max_load_factor = 0.6;
 
-	std::unique_ptr<size_t[]> m_keys;
-	std::unique_ptr<Value[]>  m_values;
+	std::unique_ptr<K[]> m_keys;
+	std::unique_ptr<V[]>  m_values;
 	std::unique_ptr<bool[]>   m_used;
 
-	std::unique_ptr<size_t[]> m_keys_new;
-	std::unique_ptr<Value[]>  m_values_new;
+	std::unique_ptr<K[]> m_keys_new;
+	std::unique_ptr<V[]>  m_values_new;
 	std::unique_ptr<bool[]>   m_used_new;
 
 	size_t m_count = 0;
 	size_t m_data_size = 0;
 
-	Value m_default{}; // never modify this
+	K m_default_key{}; // never modify this
+	V m_default_value{}; // never modify this
 
 public:
 
-	explicit LinearMap(size_t capacity = 128) // Default constructor
+	explicit LinearGenericMap(size_t capacity, size_t(*hash_func)(const K&))
 	{
-		capacity = EnsureSize(capacity);
-		m_keys = std::make_unique<size_t[]>(capacity);
-		m_values = std::make_unique<Value[]>(capacity);
-		m_used = std::make_unique<bool[]>(capacity);
-		m_data_size = capacity;
+		Init(this->EnsureSize(capacity));
+		this->m_hash = hash_func;
 	}
 
-	~LinearMap() = default; // Destructor - now defaulted because smart pointers manage memory automatically
+	explicit LinearGenericMap(size_t(*hash_func)(const K&))
+	{
+		Init();
+		this->m_hash = hash_func;
+	}
 
-	LinearMap(const LinearMap& other) // Copy constructor (deep copy)
-		: m_keys(std::make_unique<size_t[]>(other.m_data_size)),
-		m_values(std::make_unique<Value[]>(other.m_data_size)),
+	explicit LinearGenericMap()
+	{
+		Init();
+		this->m_hash = [](const K& key)
+			{
+				return std::hash<K>{}(key);
+			};
+	}
+
+	~LinearGenericMap() = default; // Destructor - now defaulted because smart pointers manage memory automatically
+
+	LinearGenericMap(const LinearGenericMap& other) // Copy constructor (deep copy)
+		: m_keys(std::make_unique<K[]>(other.m_data_size)),
+		m_values(std::make_unique<V[]>(other.m_data_size)),
 		m_used(std::make_unique<bool[]>(other.m_data_size)),
 		m_count(other.m_count),
 		m_data_size(other.m_data_size)
@@ -134,7 +183,7 @@ public:
 		std::copy_n(other.m_used.get(), other.m_data_size, m_used.get());
 	}
 
-	LinearMap& operator=(const LinearMap& other) // Copy assignment (deep copy)
+	LinearGenericMap& operator=(const LinearGenericMap& other) // Copy assignment (deep copy)
 	{
 		if (this == &other)
 			return *this;
@@ -142,8 +191,8 @@ public:
 		m_count = other.m_count;
 		m_data_size = other.m_data_size;
 
-		m_keys = std::make_unique<size_t[]>(other.m_data_size);
-		m_values = std::make_unique<Value[]>(other.m_data_size);
+		m_keys = std::make_unique<K[]>(other.m_data_size);
+		m_values = std::make_unique<V[]>(other.m_data_size);
 		m_used = std::make_unique<bool[]>(other.m_data_size);
 
 		std::copy_n(other.m_keys.get(), other.m_data_size, m_keys.get());
@@ -153,7 +202,7 @@ public:
 		return *this;
 	}
 
-	LinearMap(LinearMap&& other) noexcept // Move constructor
+	LinearGenericMap(LinearGenericMap&& other) noexcept // Move constructor
 		: m_keys(std::move(other.m_keys)),
 		m_values(std::move(other.m_values)),
 		m_used(std::move(other.m_used)),
@@ -167,7 +216,7 @@ public:
 		other.m_data_size = 0;
 	}
 
-	LinearMap& operator=(LinearMap&& other) noexcept // Move assignment
+	LinearGenericMap& operator=(LinearGenericMap&& other) noexcept // Move assignment
 	{
 		if (this == &other)
 			return *this;
@@ -212,9 +261,9 @@ public:
 		return static_cast<double>(m_count) / static_cast<double>(m_data_size);
 	}
 
-	[[nodiscard]] bool Contains(const size_t key) const
+	[[nodiscard]] bool Contains(const K& key)
 	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
+		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
@@ -225,13 +274,13 @@ public:
 		}
 	}
 
-	[[nodiscard]] Value& Get(const size_t key)
+	[[nodiscard]] V& Get(const K& key)
 	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
+		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		for (auto i = start;; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
-				return m_default;
+				return m_default_value;
 
 			if (m_keys[i] == key)
 				return m_values[i];
@@ -239,50 +288,50 @@ public:
 	}
 
 	template <typename F> requires std::is_invocable_v<F>
-	Value& GetOrCreate(const size_t key, F&& create)
+	V& GetOrCreate(const K& key, F&& create_func)
 	{
-		return GetOrCreateImpl(key, std::invoke(std::forward<F>(create)));
+		return GetOrCreateImpl(key, std::invoke(std::forward<F>(create_func)));
 	}
 
-	Value& GetOrCreate(const size_t key, const Value& v)
+	V& GetOrCreate(const K& key, const V& v)
 	{
 		return GetOrCreateImpl(key, v);
 	}
 
-	Value& GetOrCreate(const size_t key, Value&& v)
+	V& GetOrCreate(const K& key, V&& v)
 	{
 		return GetOrCreateImpl(key, std::move(v));
 	}
 
-	template <typename T>
-	void Put(const size_t key, T&& value)
+	template <typename A, typename B>
+	void Put(A&& key, B&& value)
 	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
+		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
 			{
-				Insert(key, std::forward<T>(value), i);
+				Insert(std::forward<A>(key), std::forward<B>(value), i);
 				return;
 			}
 
 			if (m_keys[i] == key)
 			{
-				m_values[i] = std::forward<T>(value);
+				m_values[i] = std::forward<B>(value); // update
 				return;
 			}
 		}
 	}
 
-	template <typename... Args>
-	bool TryEmplace(const size_t key, Args&&... args)
+	template <typename A, typename... Args>
+	bool TryEmplace(A&& key, Args&&... args)
 	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
+		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		for (auto i = start;; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
 			{
-				Insert(key, Value(std::forward<Args>(args)...), i);
+				Insert(std::forward<A>(key), V(std::forward<Args>(args)...), i);
 				return true; // inserted successfully
 			}
 
@@ -291,7 +340,7 @@ public:
 		}
 	}
 
-	bool Erase(const size_t key)
+	bool Erase(const K& key)
 	{
 		auto print_array = [this]<typename T>(const bool before, std::unique_ptr<T>&arr) -> void
 		{
@@ -313,7 +362,7 @@ public:
 
 		};
 
-		auto [start, last_index] = GetSlot(key, m_data_size);
+		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		auto inc = 0; // offset to start index
 		for (auto i = start;; i = (i + 1) & last_index)
 		{
@@ -330,7 +379,7 @@ public:
 		for (auto i = (start + 1);; i = (i + 1) & last_index)
 		{
 			const auto used = m_used[i];
-			auto [start_other, _] = GetSlot(m_keys[i], m_data_size);
+			auto [start_other, _] = this->GetSlot(m_keys[i], m_data_size);
 			start_other += (0xFFFFFFFFFFFFFFFF - m_data_size) * (1 - used); // if not used, break loop
 			if (start_other != start)
 				break;
@@ -353,8 +402,8 @@ public:
 			// [0,0,0,0,E,F,G,H,I,J]
 
 			m_used[start] = false;
-			m_keys[start] = 0;
-			m_values[start] = m_default;
+			m_keys[start] = m_default_key;
+			m_values[start] = m_default_value;
 			m_count--;
 			return true;
 		}
@@ -379,7 +428,7 @@ public:
 		{
 			auto next = (i + 1) & last_index;
 			m_used[i] = m_used[next];
-			m_keys[i] = m_keys[next];
+			m_keys[i] = std::move(m_keys[next]);
 			m_values[i] = std::move(m_values[next]);
 
 			++count;
@@ -393,9 +442,9 @@ public:
 		// [0,0,0,E,F,0,G,H,I,J]
 
 		const auto last_entry = (start + keys_above) & last_index;
-		m_keys[last_entry] = 0;
-		m_values[last_entry] = m_default;
 		m_used[last_entry] = false;
+		m_keys[last_entry] = m_default_key;
+		m_values[last_entry] = m_default_value;
 
 		//print_arrays(false);
 
@@ -405,7 +454,7 @@ public:
 
 	void Rehash(size_t new_capacity) {
 
-		new_capacity = EnsureSize(new_capacity);
+		new_capacity = this->EnsureSize(new_capacity);
 
 		if (new_capacity < m_count)
 			throw std::out_of_range("New capacity is smaller than the current size of the map");
@@ -415,7 +464,7 @@ public:
 
 	class Iterator {
 	public:
-		Iterator(size_t* keys, Value* values, bool* used, size_t index, size_t size)
+		Iterator(size_t* keys, V* values, bool* used, size_t index, size_t size)
 			: m_keys(keys), m_values(values), m_used(used), m_index(index), m_size(size)
 		{
 			advance();
@@ -431,13 +480,13 @@ public:
 			return m_index != other.m_index;
 		}
 
-		std::pair<size_t, Value> operator*() const {
+		std::pair<size_t, V> operator*() const {
 			return { m_keys[m_index], m_values[m_index] };
 		}
 
 	private:
 		size_t* m_keys;
-		Value* m_values;
+		V* m_values;
 		bool* m_used;
 		size_t m_index;
 		size_t m_size;
@@ -460,14 +509,23 @@ public:
 
 private:
 
-	Value& GetOrCreateImpl(const size_t key, Value&& new_value)
+	void Init(size_t capacity = 128)
 	{
-		auto [start, last_index] = GetSlot(key, m_data_size);
+		m_keys = std::make_unique<K[]>(capacity);
+		m_values = std::make_unique<V[]>(capacity);
+		m_used = std::make_unique<bool[]>(capacity);
+		m_data_size = capacity;
+	}
+
+	template <typename A, typename B>
+	V& GetOrCreateImpl(A&& key, B&& new_value)
+	{
+		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
 			{
-				Insert(key, std::move(new_value), i);
+				Insert(std::forward<A>(key), std::forward<B>(new_value), i);
 				return m_values[i]; // return after insert
 			}
 
@@ -476,65 +534,38 @@ private:
 		}
 	}
 
-	[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const size_t key, const size_t data_size) const
-	{
-		const auto hash = Hash(key);
-		const auto size = data_size;
-		const auto last_index = size - 1;
-		const auto start = hash & last_index;
-		return std::make_tuple(start, last_index);
-	}
-
-	template <typename T>
-	void Insert(const size_t key, T&& new_value, size_t i)
+	template <typename A, typename B>
+	void Insert(A&& key, B&& new_value, size_t i)
 	{
 		m_used[i] = true;
-		m_keys[i] = key;
-		m_values[i] = std::forward<T>(new_value);
+		m_keys[i] = std::forward<A>(key);
+		m_values[i] = std::forward<B>(new_value);
 		m_count++;
 
 		if ((double)m_count / (double)m_data_size > max_load_factor)
 			Resize(m_data_size * 2);
 	}
 
-	static size_t Hash(const size_t key)
-	{
-		auto hash = key + 1; // fix for 0 keys
-		hash ^= hash >> 21;
-		hash ^= hash << 37;
-		hash ^= hash >> 4;
-		hash *= 0x165667919E3779F9ULL;
-		hash ^= hash >> 32;
-		return hash;
-	}
-
-	static size_t EnsureSize(size_t n)
-	{
-		n = std::max(n, 8ull); // minimum size
-		const size_t next = 1ull << std::bit_width(n - 1); // next power of two
-		const size_t prev = next >> 1;                          // previous power of two
-		return (n - prev < next - n) ? prev : next;
-	}
-
-	void PutWithNewSize(const size_t key, const Value& value, const size_t new_size)
+	template<typename A, typename B>
+	void PutWithNewSize(A&& key, B&& value, const size_t new_size)
 	{
 		if (!m_used_new || !m_keys_new || !m_values_new)
-			UNREACHABLE();
+			unreachable();
 
-		auto [start, last_index] = GetSlot(key, new_size);
+		auto [start, last_index] = this->GetSlot(key, new_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
 			if (!m_used_new[i])
 			{
 				m_used_new[i] = true;
-				m_keys_new[i] = key;
-				m_values_new[i] = std::move(value);
+				m_keys_new[i] = std::forward<A>(key);
+				m_values_new[i] = std::forward<B>(value);
 				return;
 			}
 
 			if (m_keys_new[i] == key)
 			{
-				m_values_new[i] = std::move(value);
+				m_values_new[i] = std::forward<B>(value);
 				return;
 			}
 		}
@@ -543,8 +574,8 @@ private:
 	void Resize(const size_t new_size)
 	{
 		// Allocate new buffers (unique_ptr handles cleanup automatically on re-assignment)
-		m_keys_new = std::make_unique<size_t[]>(new_size);
-		m_values_new = std::make_unique<Value[]>(new_size);
+		m_keys_new = std::make_unique<K[]>(new_size);
+		m_values_new = std::make_unique<V[]>(new_size);
 		m_used_new = std::make_unique<bool[]>(new_size);
 
 		// Rehash and insert existing elements into the new storage
@@ -553,8 +584,7 @@ private:
 			if (!m_used[i])
 				continue;
 
-			const auto& value = m_values[i];
-			PutWithNewSize(m_keys[i], value, new_size);
+			PutWithNewSize(std::move(m_keys[i]), std::move(m_values[i]), new_size);
 		}
 
 		// Move the new arrays into place
@@ -565,28 +595,74 @@ private:
 		// Clear temporaries (unique_ptr reset is automatic after move)
 		m_data_size = new_size;
 	}
+};
+
+template <class K>
+class LinearSet
+{
+
+	// TODO: Hashset version
+
+public:
+
+private:
+
+
+};
+
+template <class T>
+class LinearMap : public LinearGenericMap<size_t, T>
+{
+public:
+
+	explicit LinearMap(size_t capacity = 128)
+	: LinearGenericMap<size_t, T>(capacity, &IntHash)
+	{
+	}
+
+	using Base = LinearGenericMap<size_t, T>;
+
+private:
+
+	static size_t IntHash(const size_t& k)
+	{
+		return k;
+	}
+};
+
+
+template <class T>
+class LinearMapDbg : public LinearMap<T>
+{
+
+public:
+
+	void HashTest()
+	{
+		// TODO: this next
+	}
 
 	void PrintHashDistribution() const
+	{
+		std::cout << this->m_data_size << "\n";
+		std::ofstream file("F:\\map.txt", std::ios::binary);
+
+		if (!file.is_open())
+			return;
+
+		for (auto i = 0ull; i < this->m_data_size; i++)
 		{
-			std::cout << m_data_size << "\n";
-			std::ofstream file("F:\\map.txt", std::ios::binary);
-
-			if (!file.is_open())
-				return;
-
-			for (auto i = 0ull; i < m_data_size; i++)
+			if (!this->m_used[i])
 			{
-				if (!m_used[i])
-				{
-					constexpr char val[] = { 32, 32, 48 };
-					file.write(val, 3);
-					continue;
-				}
-
-				constexpr char val2[] = { 32, 32, 49 };
-				file.write(val2, 3);
+				constexpr char val[] = { 32, 32, 48 };
+				file.write(val, 3);
+				continue;
 			}
 
-			file.close();
+			constexpr char val2[] = { 32, 32, 49 };
+			file.write(val2, 3);
 		}
+
+		file.close();
+	}
 };
