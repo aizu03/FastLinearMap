@@ -5,6 +5,12 @@ LinearMap - A Simple Header-Only, Cache-Friendly Linear-Probing Hash Map
 Author: [aizu03]
 License: MIT (free to use, modify, and distribute)
 
+This file includes the following classes:
+
+LinearMap<T>          - A hash map with size_t keys and T values.
+LinearGenericMap<K,V> - A generic hash map with K keys and V values.
+
+
 Description:
 ------------
 LinearMap is a fast, and bare bones, open-addressing hash map implementation that uses
@@ -81,19 +87,18 @@ Get             42.9095         96.8458					2.25698x
 #endif
 
 template <class K, class V>
-class LinearHash
+class AzHashBase
 {
+protected:
 
-public:
-
-	size_t(*m_hash)(const K&);
+	size_t(*m_hash)(const K&) = nullptr;
 
 	[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const K& key, const size_t data_size)
 	{
 		if (!m_hash)
 			unreachable();
 
-		const size_t hash = HashImpl(m_hash(key));
+		const size_t hash = HashImpl(m_hash(key), data_size);
 		const auto size = data_size;
 
 #if defined(__clang__) or defined(__GNUC__)
@@ -105,17 +110,41 @@ public:
 		return std::make_tuple(start, last_index);
 	}
 
-	static size_t HashImpl(const size_t n)
+	static size_t HashImpl(const size_t n, const size_t data_size)
 	{
-		// TODO: Test better hashes
+		auto x = n + 1; // fix for 0 keys
+		constexpr int hash_id = 3;
 
-		auto hash = n + 1; // fix for 0 keys
-		hash ^= hash >> 21;
-		hash ^= hash << 37;
-		hash ^= hash >> 4;
-		hash *= 0x165667919E3779F9ULL;
-		hash ^= hash >> 32;
-		return hash;
+		if (hash_id == 0) // Custom
+		{
+			x ^= x >> 21;
+			x ^= x << 37;
+			x ^= x >> 4;
+			x *= 0x165667919E3779F9ULL;
+			x ^= x >> 32;
+		}
+		else if (hash_id == 1)  // Splitmix64
+		{
+			x += 0x9e3779b97f4a7c15;
+			x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9;
+			x = (x ^ (x >> 27)) * 0x94d049bb133111eb;
+			x ^= (x >> 31);
+		}
+		else if (hash_id == 2) // Wyhash Final
+		{
+			x ^= x >> 32;
+			x *= 0xd6e8feb86659fd93;
+			x ^= x >> 32;
+			x *= 0xd6e8feb86659fd93;
+			x ^= x >> 32;
+		}
+		else if (hash_id == 3) // Golden ratio
+		{
+			constexpr uint64_t golden_ratio = 11400714819323198485ULL;
+			return (x * golden_ratio) & (data_size - 1);
+		}
+
+		return x;
 	}
 
 	static size_t EnsureSize(size_t n)
@@ -128,9 +157,11 @@ public:
 };
 
 template <class K, class V>
-class LinearGenericMap : public LinearHash<K, V>
+class LinearGenericMap : public AzHashBase<K, V>
 {
 	static constexpr double max_load_factor = 0.6;
+
+protected:
 
 	std::unique_ptr<K[]> m_keys;
 	std::unique_ptr<V[]>  m_values;
@@ -597,7 +628,7 @@ private:
 	}
 };
 
-template <class K>
+/*template <class K>
 class LinearSet
 {
 
@@ -608,7 +639,7 @@ public:
 private:
 
 
-};
+};*/
 
 template <class T>
 class LinearMap : public LinearGenericMap<size_t, T>
@@ -632,14 +663,25 @@ private:
 
 
 template <class T>
-class LinearMapDbg : public LinearMap<T>
+class DebugMap : public LinearMap<T>
 {
 
 public:
 
-	void HashTest()
+	[[nodiscard]] unsigned CountCollisions(const size_t& key)
 	{
-		// TODO: this next
+		unsigned count = 0;
+		auto [start, last_index] = this->GetSlot(key, this->m_data_size);
+		for (auto i = start;; i = (i + 1) & last_index)
+		{
+			if (!this->m_used[i])
+				return count;
+
+			if (this->m_keys[i] == key)
+				return count;
+
+			++count;
+		}
 	}
 
 	void PrintHashDistribution() const

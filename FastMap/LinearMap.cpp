@@ -30,7 +30,6 @@ NO_OPTIMIZE_BEGIN
 static void TestIntMap()
 {
     LinearMap<int> map(8); // small initial size to force resize
-
     auto val = map.GetOrCreate(1, []
     {
 	    return 99887;
@@ -46,12 +45,21 @@ static void TestIntMap()
 		assert(val == (int)i);
     }
 
-    map.Rehash(512);
+    map.Rehash(32);
 
     for (size_t i = 1; i <= 20; ++i)
     {
         assert(map.Get(i * 1234) == i);
     }
+
+    map.Rehash(512);
+
+	for (size_t i = 1; i <= 20; ++i)
+    {
+        assert(map.Get(i * 1234) == i);
+    }
+
+    map.Rehash(64);
 
 	// Overwrite
 	for (size_t i = 1; i <= 20; i++)
@@ -75,9 +83,9 @@ static void TestIntMap()
 		assert(check && check == (int)(i * 7 + 1));
 	}
 
-    map.Erase(44);
-    auto e1 = map.TryEmplace(44, 123);
-    auto e2 = map.TryEmplace(44, 123);
+    map.Erase(16);
+    auto e1 = map.TryEmplace(16, 123);
+    auto e2 = map.TryEmplace(16, 123);
     assert(e2 != e1);
 
     std::cout << "TestIntMap passed!\n";
@@ -315,37 +323,56 @@ static size_t Hasher(const double& key)
     return std::hash<double>{}(key);
 }
 
+static void HashTest()
+{
+    DebugMap<int> dbg;
+    constexpr size_t num = 1'000'000;
+    for (size_t i = 0; i < num; ++i)
+    {
+        dbg.Put(i, i * 2 + 31);
+    }
+
+    for (size_t i = 0; i < num; ++i)
+    {
+        assert(dbg.Get(i) == i * 2 + 31);
+    }
+
+    double avg_collision = 0;
+    double num_collision = 0;
+
+    for (int i = 0; i < 5; ++i)
+    {
+        // ===== start timer =====
+        auto start = std::chrono::high_resolution_clock::now();
+
+        for (size_t i = 0; i < num; ++i)
+        {
+            auto col = dbg.CountCollisions(i);
+            avg_collision += col;
+            num_collision++;
+        }
+
+        auto end = std::chrono::high_resolution_clock::now();
+        // ===== end timer =====
+
+        std::chrono::duration<double, std::milli> elapsed = end - start;
+        std::cout << "Collision counting took: " << elapsed.count() << " ms\n";
+
+        avg_collision /= num_collision;
+        std::cout << "Average collisions per key: " << avg_collision << "\n";
+    }
+}
+
 NO_OPTIMIZE_BEGIN
 int main()
 {
+
 #if _DEBUG
 
-    LinearGenericMap<double, int> map_double(&Hasher);
-    map_double.Put(3.14, 22);
     RunAllTests();
 
-    LinearGenericMap<std::string, int> map2(8, [](const std::string& str)
-        {
-            return std::hash<std::string>{}(str);
-        });
-
-    std::cout << (map2.Contains("Test!") ? "Yes" : "No") << "\n";
-    map2.Put("Test!", 15);
-    std::cout << (map2.Contains("Test!") ? "Yes" : "No") << "\n";
-
-    LinearMap<int> map(8);
-    map.Put(1, 99);
-    map.GetOrCreate(1, []
-        {
-            return 123;
-        });
-
-    map.GetOrCreate(1, 123);
-    constexpr auto lvalue = 456;
-    map.GetOrCreate(1, lvalue);
-
-
 #else
+    HashTest();
     BenchmarkLinearMapVsUnorderedMap();
 #endif
 }

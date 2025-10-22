@@ -1,9 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <ClassDiagram MajorVersion="1" MinorVersion="1">
-  <Class Name="LinearHash&lt;K, V&gt;">
+  <Class Name="AzHashBase&lt;K, V&gt;">
     <Position X="3.5" Y="2.5" Width="1.5" />
     <TypeIdentifier>
-      <HashCode>AAAAAAABAIAAAAAAAAAgAAAECAgAAAAAAAAAAEAAAAA=</HashCode>
+      <HashCode>AAAAAAAAAIAAAAAAAAAAAAAECAAAAAAAAAAAAEAAAAA=</HashCode>
       <FileName>LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
@@ -17,14 +17,7 @@
       </Class>
     </NestedTypes>
     <TypeIdentifier>
-      <HashCode>ABAEEEQSAAAggCFJAAAAECASCBAAAAAAAAQkAAVQQQw=</HashCode>
-      <FileName>LinearMap.h</FileName>
-    </TypeIdentifier>
-  </Class>
-  <Class Name="LinearSet&lt;K&gt;" Collapsed="true">
-    <Position X="4" Y="0.5" Width="1.5" />
-    <TypeIdentifier>
-      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <HashCode>ABAEEEQSAAAggCFJAAAAECASCBAAAAAAAAQmAAVQQQw=</HashCode>
       <FileName>LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
@@ -32,13 +25,6 @@
     <Position X="3.5" Y="5.75" Width="1.5" />
     <TypeIdentifier>
       <HashCode>BAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAA=</HashCode>
-      <FileName>LinearMap.h</FileName>
-    </TypeIdentifier>
-  </Class>
-  <Class Name="LinearMapDbg&lt;T&gt;" Collapsed="true">
-    <Position X="1.5" Y="5.75" Width="1.5" />
-    <TypeIdentifier>
-      <HashCode>AAAAAAAAQAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAA=</HashCode>
       <FileName>LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
