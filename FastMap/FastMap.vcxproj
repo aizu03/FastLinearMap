@@ -134,7 +134,7 @@
     <ClCompile Include="LinearMap.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="LinearMap.h" />
+    <ClInclude Include="include\LinearMap.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="ClassDiagram.cd" />

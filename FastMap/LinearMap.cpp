@@ -2,7 +2,7 @@
 //
 
 // ReSharper disable CppClangTidyMiscUseAnonymousNamespace
-#include "LinearMap.h"
+#include "include/LinearMap.h"
 
 #include <cassert>
 #include <chrono>
