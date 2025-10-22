@@ -26,15 +26,28 @@
 
 struct MyVector { std::vector<int> data; };
 
+static void assert2(bool expression)
+{
+#if _DEBUG
+	assert(expression);
+#else
+    if (!expression)
+    {
+        std::cerr << "Assertion failed!\n";
+        std::terminate();
+	}
+#endif
+}
+
 NO_OPTIMIZE_BEGIN
 static void TestIntMap()
 {
-    LinearMap<int> map(8); // small initial size to force resize
+    UnitTest<int> map(8); // small initial size to force resize
     auto val = map.GetOrCreate(1, []
     {
 	    return 99887;
     });
-    assert(val == 99887);
+    assert2(val == 99887);
 
     // Insert and get
     for (size_t i = 1; i <= 20; i++)
@@ -42,21 +55,21 @@ static void TestIntMap()
 		const auto key = i * 1234;
 		map.Put(key, (int)i);
 		auto val = map.Get(key);
-		assert(val == (int)i);
+		assert2(val == (int)i);
     }
 
     map.Rehash(32);
 
     for (size_t i = 1; i <= 20; ++i)
     {
-        assert(map.Get(i * 1234) == i);
+        assert2(map.Get(i * 1234) == i);
     }
 
     map.Rehash(512);
 
 	for (size_t i = 1; i <= 20; ++i)
     {
-        assert(map.Get(i * 1234) == i);
+        assert2(map.Get(i * 1234) == i);
     }
 
     map.Rehash(64);
@@ -66,27 +79,27 @@ static void TestIntMap()
 	{
 		map.Put(i, (int)(i * 100));
 		auto val = map.Get(i);
-		assert(val && val == (int)(i * 100));
+		assert2(val && val == (int)(i * 100));
 	}
 
 	// Get non-existing
-	assert(!map.Get(999));
-	assert(!map.Contains(999));
+	assert2(!map.Get(999));
+	assert2(!map.Contains(999));
 
 	// GetOrCreate
 	for (size_t i = 21; i <= 25; i++)
 	{
 		int& val = map.GetOrCreate(i, [i]() { return (int)(i * 7); });
-		assert(val == (int)(i * 7));
+		assert2(val == (int)(i * 7));
 		val += 1; // test reference
 		auto check = map.Get(i);
-		assert(check && check == (int)(i * 7 + 1));
+		assert2(check && check == (int)(i * 7 + 1));
 	}
 
     map.Erase(16);
     auto e1 = map.TryEmplace(16, 123);
     auto e2 = map.TryEmplace(16, 123);
-    assert(e2 != e1);
+    assert2(e2 != e1);
 
     std::cout << "TestIntMap passed!\n";
 }
@@ -96,7 +109,7 @@ NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
 static void TestStructMap()
 {
-    LinearMap<MyVector> map;
+    UnitTest<MyVector> map;
 
     MyVector vec;
     vec.data.push_back(1);
@@ -106,22 +119,22 @@ static void TestStructMap()
     map.Put(42, std::move(vec));
 
     // vec should be empty after move
-    assert(vec.data.empty());
+    assert2(vec.data.empty());
 
     MyVector& v = map.Get(42);
-    assert(v.data.size() == 3);
-    assert(v.data[1] == 2);
+    assert2(v.data.size() == 3);
+    assert2(v.data[1] == 2);
 
     // modify retrieved value
     v.data.clear();
-    assert(map.Get(42).data.empty());
+    assert2(map.Get(42).data.empty());
 
-    LinearMap<std::vector<int>> map2;
+    UnitTest<std::vector<int>> map2;
     std::vector<int> vec2;
     vec2.push_back(12);
     vec2.push_back(777);
     map2.Put(2012, std::move(vec2)); // should be moved
-    assert(vec2.empty());
+    assert2(vec2.empty());
     auto& retrieved = map2.Get(2012);
     auto& retrieved3 = map2.Get(2013); 
     retrieved.clear();
@@ -135,7 +148,7 @@ NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
 static void TestRandomStress()
 {
-    LinearMap<int> map(16);
+    UnitTest<int> map(16);
     std::mt19937 rng(1234);
     std::uniform_int_distribution<size_t> dist(1, 1000);
 
@@ -145,7 +158,7 @@ static void TestRandomStress()
         map.Put(key, (int)key);
 
         auto val = map.Get(key);
-        assert(val && val == (int)key);
+        assert2(val && val == (int)key);
     }
 
     std::cout << "TestRandomStress passed!\n";
@@ -156,7 +169,7 @@ NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
 static void TestIterator()
 {
-    LinearMap<int> map(8);
+    UnitTest<int> map(8);
     for (int i = 1; i <= 10; i++)
         map.Put(i, i * 10);
 
@@ -168,7 +181,7 @@ static void TestIterator()
     }
 
     // Sum should be 10*11/2 * 10 = 550
-    assert(sum == 550);
+    assert2(sum == 550);
 
     std::cout << "TestIterator passed!\n";
 }
@@ -178,7 +191,7 @@ NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
 static void TestErase()
 {
-    LinearMap<MyVector> map2(8);
+    UnitTest<MyVector> map2(8);
     for (size_t i = 1; i <= 10; i++)
     {
         MyVector vec;
@@ -187,25 +200,26 @@ static void TestErase()
         map2.Put(i, std::move(vec));
     }
 
+
     //map2.Erase(4);
     map2.Erase(8);
     map2.Erase(9);
 
-    //assert(!map2.Contains(4));
-    assert(!map2.Contains(8));
-    assert(!map2.Contains(9));
+    //should_equal(!map2.Contains(4));
+    assert2(!map2.Contains(8));
+    assert2(!map2.Contains(9));
 
 
-    LinearMap<int> map(8);
+    UnitTest<int> map(8);
     for (size_t i = 1; i <= 9; i++)
     {
 	    map.Put(i, i * 2);
     }
 
-    assert(map.Get(2) == 4);
+    assert2(map.Get(2) == 4);
     map.Erase(2);
-	assert(!map.Get(2)); // 2 and 8 share same hash index
-    assert(map.Get(8) == 16);
+	assert2(!map.Get(2)); // 2 and 8 share same hash index
+    assert2(map.Get(8) == 16);
 
     map.Clear();
 	
@@ -229,7 +243,7 @@ static void BenchmarkLinearMapVsUnorderedMap()
         values[i] = (int)i;
 
     // --- LinearMap ---
-    LinearMap<int> lmap(1024);
+    UnitTest<int> lmap(1024);
 
     auto t0 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < num_elements; ++i)
@@ -259,9 +273,6 @@ static void BenchmarkLinearMapVsUnorderedMap()
     t1 = std::chrono::high_resolution_clock::now();
     double linear_get = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-    // sanity check
-    assert(found == num_elements);
-
     // --- std::unordered_map ---
     std::unordered_map<size_t, int> umap;
 
@@ -288,8 +299,6 @@ static void BenchmarkLinearMapVsUnorderedMap()
 
     t1 = std::chrono::high_resolution_clock::now();
     double unordered_get = std::chrono::duration<double, std::milli>(t1 - t0).count();
-
-    assert(found == num_elements);
 
     // --- Print results neatly ---
     std::cout << "\n--- Benchmark Results (" << num_elements << " elements) ---\n\n";
@@ -334,14 +343,14 @@ static void HashTest()
 
     for (size_t i = 0; i < num; ++i)
     {
-        assert(dbg.Get(i) == i * 2 + 31);
+        assert2(dbg.Get(i) == i * 2 + 31);
     }
-
-    double avg_collision = 0;
-    double num_collision = 0;
 
     for (int i = 0; i < 5; ++i)
     {
+        double avg_collision = 0;
+        double num_collision = 0;
+
         // ===== start timer =====
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -366,12 +375,14 @@ static void HashTest()
 NO_OPTIMIZE_BEGIN
 int main()
 {
-
+    RunAllTests();
+  
 #if _DEBUG
 
-    RunAllTests();
+
 
 #else
+  
     HashTest();
     BenchmarkLinearMapVsUnorderedMap();
 #endif

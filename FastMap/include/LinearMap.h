@@ -642,11 +642,11 @@ private:
 };*/
 
 template <class T>
-class LinearMap : public LinearGenericMap<size_t, T>
+class UnitTest : public LinearGenericMap<size_t, T>
 {
 public:
 
-	explicit LinearMap(size_t capacity = 128)
+	explicit UnitTest(size_t capacity = 128)
 	: LinearGenericMap<size_t, T>(capacity, &IntHash)
 	{
 	}
@@ -663,7 +663,7 @@ private:
 
 
 template <class T>
-class DebugMap : public LinearMap<T>
+class DebugMap : public UnitTest<T>
 {
 
 public:
