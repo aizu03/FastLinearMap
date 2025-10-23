@@ -312,7 +312,7 @@ static void TestEmplaceAll()
 }
 NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
-static void SafeLinearPut(LinearMap<int>& map, size_t key, int value)
+static void SafeLinearEmplace(LinearMap<int>& map, size_t key, int value)
 {
     map.Emplace(key, value);
 }
@@ -330,7 +330,7 @@ static bool SafeLinearContains(LinearMap<int>& map, const size_t key)
 }
 NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
-static void SafeUnorderedPut(std::unordered_map<size_t, int>& map, size_t key, int value)
+static void SafeUnorderedEmplace(std::unordered_map<size_t, int>& map, size_t key, int value)
 {
     map[key] = value;
 }
@@ -368,7 +368,7 @@ static void BenchmarkLinearMapVsUnorderedMap()
 
     auto t0 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < num_elements; ++i)
-        SafeLinearPut(lmap, i, values[i]);
+        SafeLinearEmplace(lmap, i, values[i]);
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double linear_put = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -397,7 +397,7 @@ static void BenchmarkLinearMapVsUnorderedMap()
 
     t0 = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < num_elements; ++i)
-        SafeUnorderedPut(umap, i, values[i]);
+        SafeUnorderedEmplace(umap, i, values[i]);
 
     t1 = std::chrono::high_resolution_clock::now();
     double unordered_put = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -423,7 +423,7 @@ static void BenchmarkLinearMapVsUnorderedMap()
     std::cout << "\n--- Benchmark Results (" << num_elements << " elements) ---\n\n";
 
     std::cout << "Operation\tLinearMap(ms)\tunordered_map(ms)\tSpeedup\n";
-    std::cout << "Put\t\t" << linear_put << "\t\t" << unordered_put << "\t\t"
+    std::cout << "Emplace\t\t" << linear_put << "\t\t" << unordered_put << "\t\t"
         << unordered_put / linear_put << "x\n";
     std::cout << "Contains\t" << linear_contains << "\t\t" << unordered_contains << "\t\t"
         << unordered_contains / linear_contains << "x\n";
@@ -501,7 +501,7 @@ int main()
 #else
   
     HashTest();
-  //  BenchmarkLinearMapVsUnorderedMap();
+    BenchmarkLinearMapVsUnorderedMap();
 #endif
 }
 NO_OPTIMIZE_END

@@ -53,7 +53,7 @@ With clang++20 and AVX2 optimizations enabled
 --- Benchmark Results (1000000 elements) ---
 
 Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Put             43.8725         221.236         5.04269x
+Emplace         43.8725         221.236         5.04269x
 Contains        35.175          164.799         4.68512x
 Get             34.1008         346.833         10.1708x
 
