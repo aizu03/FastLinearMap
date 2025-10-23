@@ -35,22 +35,26 @@ struct MyVector { std::vector<int> data; };
         } \
     } while (0)
 
-
 NO_OPTIMIZE_BEGIN
 static void TestIntMap()
 {
     LinearMap<int> map(8); // small initial size to force resize
+
     auto val = map.GetOrCreate(1, []
     {
 	    return 99887;
     });
     assert_always(val == 99887);
 
+    map[789] = 123456;
+	auto operator_value = map[789];
+	assert_always(operator_value == 123456);
+
     // Insert and get
     for (size_t i = 1; i <= 20; i++)
     {
 		const auto key = i * 1234;
-		map.Put(key, (int)i);
+		map.Emplace(key, (int)i);
 		auto val = map.Get(key);
 		assert_always(val == (int)i);
     }
@@ -74,7 +78,7 @@ static void TestIntMap()
 	// Overwrite
 	for (size_t i = 1; i <= 20; i++)
 	{
-		map.Put(i, (int)(i * 100));
+		map.Emplace(i, (int)(i * 100));
 		auto val = map.Get(i);
 		assert_always(val && val == (int)(i * 100));
 	}
@@ -111,7 +115,7 @@ static void TestStructMap()
     vec.data.push_back(2);
     vec.data.push_back(3);
 
-    map.Put(42, std::move(vec));
+    map.Emplace(42, std::move(vec));
 
     // vec should be empty after move
     assert_always(vec.data.empty());
@@ -128,7 +132,7 @@ static void TestStructMap()
     std::vector<int> vec2;
     vec2.push_back(12);
     vec2.push_back(777);
-    map2.Put(2012, std::move(vec2)); // should be moved
+    map2.Emplace(2012, std::move(vec2)); // should be moved
     assert_always(vec2.empty());
     auto& retrieved = map2.Get(2012);
     auto& retrieved3 = map2.Get(2013); 
@@ -148,7 +152,7 @@ static void TestRandomStress()
     for (int iter = 0; iter < 1000; iter++)
     {
         size_t key = dist(rng);
-        map.Put(key, (int)key);
+        map.Emplace(key, (int)key);
 
         auto val = map.Get(key);
         assert_always(val && val == (int)key);
@@ -162,7 +166,7 @@ static void TestIterator()
 {
     LinearMap<int> map(8);
     for (int i = 1; i <= 10; i++)
-        map.Put(i, i * 10);
+        map.Emplace(i, i * 10);
 
     int sum = 0;
     for (auto it = map.begin(); it != map.end(); ++it)
@@ -186,7 +190,7 @@ static void TestErase()
         MyVector vec;
         vec.data.push_back((i + 1) * 4);
         vec.data.push_back((i + 2) * 4);
-        map2.Put(i, std::move(vec));
+        map2.Emplace(i, std::move(vec));
     }
 
 
@@ -202,7 +206,7 @@ static void TestErase()
     LinearMap<int> map(8);
     for (size_t i = 1; i <= 9; i++)
     {
-	    map.Put(i, i * 2);
+	    map.Emplace(i, i * 2);
     }
 
     assert_always(map.Get(2) == 4);
@@ -216,9 +220,101 @@ static void TestErase()
 }
 NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
+static void TestEmplaceAll()
+{
+    LinearMap<int> map;
+    std::vector<std::tuple<size_t, int>> pairs;
+    pairs.emplace_back(1, 99);
+    pairs.emplace_back(2, 88);
+    pairs.emplace_back(4, 77);
+    pairs.emplace_back(5, 66);
+
+    map.EmplaceAll(pairs);
+
+    assert_always(map.Get(4) == 77);
+    assert_always(map.Get(5) == 66);
+
+
+    LinearGenericMap<std::string, int> map2;
+
+	std::vector<std::tuple<std::string, int>> pairs2;
+
+    for (int i = 0; i < 1000; ++i)
+    {
+		auto key = "key_" + std::to_string(i);
+        auto value = i * 2 + 10;
+		pairs2.emplace_back(key, value);
+    }
+
+    std::vector<std::tuple<std::string, int>> copy1;
+    std::vector<std::tuple<std::string, int>> copy2;
+	copy1 = pairs2;
+	copy2 = pairs2;
+
+    map2.EmplaceAll(pairs2);
+
+    for (int i = 0; i < 1000; ++i)
+    {
+        auto key = "key_" + std::to_string(i);
+        auto expected_value = i * 2 + 10;
+        auto val = map2.Get(key);
+		assert_always(val && val == expected_value);
+    }
+
+    map2.Clear();
+
+    std::vector<std::string> keys;
+    std::vector<int> values;
+    keys.reserve(copy1.size());
+    values.reserve(copy1.size());
+
+    for (auto& [k, v] : copy1)
+    {
+        keys.push_back(k);
+        values.push_back(v);
+    }
+
+    map2.EmplaceAll(keys.data(), values.data(), copy1.size());
+
+    for (int i = 0; i < 1000; ++i)
+    {
+        auto key = "key_" + std::to_string(i);
+        auto expected_value = i * 2 + 10;
+        auto val = map2.Get(key);
+        assert_always(val && val == expected_value);
+    }
+
+    map2.Clear();
+
+
+    std::vector<std::string> keys2;
+    std::vector<int> values2;
+    keys.reserve(copy2.size());
+    values.reserve(copy2.size());
+
+    for (auto& [k, v] : copy2)
+    {
+        keys2.push_back(k);
+        values2.push_back(v);
+    }
+
+    map2.EmplaceAll(keys2, values2);
+
+    for (int i = 0; i < 1000; ++i)
+    {
+        auto key = "key_" + std::to_string(i);
+        auto expected_value = i * 2 + 10;
+        auto val = map2.Get(key);
+        assert_always(val && val == expected_value);
+    }
+
+    std::cout << "TestEmplaceAll passed!\n";
+}
+NO_OPTIMIZE_END
+NO_OPTIMIZE_BEGIN
 static void SafeLinearPut(LinearMap<int>& map, size_t key, int value)
 {
-    map.Put(key, value);
+    map.Emplace(key, value);
 }
 NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
@@ -251,6 +347,7 @@ static bool SafeUnorderedContains(std::unordered_map<size_t, int>& map, const si
     return map.contains(key);
 }
 NO_OPTIMIZE_END
+
 
 static void BenchmarkLinearMapVsUnorderedMap()
 {
@@ -335,8 +432,6 @@ static void BenchmarkLinearMapVsUnorderedMap()
 	std::cout << sum << found << "\n"; // to prevent optimization
 }
 
-
-// Run all tests
 static void RunAllTests()
 {
     TestIntMap();
@@ -344,6 +439,7 @@ static void RunAllTests()
     TestRandomStress();
     TestIterator();
     TestErase();
+    TestEmplaceAll();
 
     std::cout << "All tests passed successfully!\n";
 }
@@ -359,7 +455,7 @@ static void HashTest()
     constexpr size_t num = 1'000'000;
     for (size_t i = 0; i < num; ++i)
     {
-        dbg.Put(i, i * 2 + 31);
+        dbg.Emplace(i, i * 2 + 31);
     }
 
     for (size_t i = 0; i < num; ++i)
@@ -405,7 +501,7 @@ int main()
 #else
   
     HashTest();
-    BenchmarkLinearMapVsUnorderedMap();
+  //  BenchmarkLinearMapVsUnorderedMap();
 #endif
 }
 NO_OPTIMIZE_END

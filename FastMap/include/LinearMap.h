@@ -53,12 +53,13 @@ With clang++20 and AVX2 optimizations enabled
 --- Benchmark Results (1000000 elements) ---
 
 Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Put             54.6472         255.393         4.67348x
-Contains        33.31           148.945         4.47148x
-Get             32.7068         357.055         10.9168x
+Put             43.8725         221.236         5.04269x
+Contains        35.175          164.799         4.68512x
+Get             34.1008         346.833         10.1708x
 
 ------------------------------------------------------------------------------
 */
+
 
 #pragma once
 #include <tuple>
@@ -140,17 +141,16 @@ protected:
 		return x;
 	}
 
-	static size_t EnsureSize(size_t n)
+	static size_t FormatCapacity(size_t n)
 	{
-		n = std::max(n, 8ull); // minimum size
-		const size_t next = 1ull << std::bit_width(n - 1); // next power of two
-		const size_t prev = next >> 1;                          // previous power of two
-		return (n - prev < next - n) ? prev : next;
+		n = std::max(n, 8ull);                     // minimum size
+		size_t next = 1ull << std::bit_width(n - 1); // next power of two
+		return next;
 	}
 };
 
 template <class K, class V>
-class LinearGenericMap : public AzHashBase<K, V>
+class LinearGenericMap : public AzHashBase<K, V> // linear probing hash map
 {
 	static constexpr double max_load_factor = 0.6;
 
@@ -174,7 +174,7 @@ public:
 
 	explicit LinearGenericMap(size_t capacity, size_t(*hash_func)(const K&))
 	{
-		Init(this->EnsureSize(capacity));
+		Init(this->FormatCapacity(capacity));
 		this->m_hash = hash_func;
 	}
 
@@ -262,6 +262,16 @@ public:
 		return *this;
 	}
 
+	V& operator[](const K& key)
+	{
+		return GetOrCreate(key, V{});
+	}
+
+	const V& operator[](const K& key) const {
+
+		return Get(key); 
+	}
+
 	void Clear()
 	{
 		// empty out, and keep allocated memory
@@ -327,35 +337,87 @@ public:
 		return GetOrCreateImpl(key, std::move(v));
 	}
 
-	template <typename A, typename B>
-	void Put(A&& key, B&& value)
+	template <typename KeyType, typename ValType>
+	void Emplace(KeyType&& key, ValType&& value)
 	{
 		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
 			{
-				Insert(std::forward<A>(key), std::forward<B>(value), i);
+				Insert(std::forward<KeyType>(key), std::forward<ValType>(value), i);
 				return;
 			}
 
 			if (m_keys[i] == key)
 			{
-				m_values[i] = std::forward<B>(value); // update
+				m_values[i] = std::forward<ValType>(value); // update
 				return;
 			}
 		}
 	}
 
-	template <typename A, typename... Args>
-	bool TryEmplace(A&& key, Args&&... args)
+	template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
+		requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, K>&&
+			std::convertible_to<std::ranges::range_reference_t<ValueRange>, V>
+		void EmplaceAll(KeyRange& keys, ValueRange& values)
+	{
+		auto key_it = std::begin(keys);
+		auto key_end = std::end(keys);
+		auto val_it = std::begin(values);
+
+		EnsureCapacity(std::distance(key_it, key_end));
+
+		while (key_it != key_end)
+		{
+			EmplaceNoGrow(std::ranges::iter_move(key_it), std::ranges::iter_move(val_it));
+			
+			++key_it;
+			++val_it;
+		}
+	}
+
+	template <std::ranges::input_range PairRange>
+		requires requires(const std::ranges::range_value_t<PairRange>& p) {
+			{ std::get<0>(p) } -> std::convertible_to<K>;
+			{ std::get<1>(p) } -> std::convertible_to<V>;
+	}
+	void EmplaceAll(PairRange& pairs)
+	{
+		EnsureCapacity(std::ranges::distance(pairs));
+
+		for (auto&& p : pairs)
+		{
+			K&& key = std::get<0>(std::move(p));
+			V&& value = std::get<1>(std::move(p));
+			EmplaceNoGrow(std::move(key), std::move(value));
+		}
+	}
+
+	void EmplaceAll(K* keys, V* values, const size_t count)
+	{
+		if (!keys || !values || count == 0)
+			return;
+
+		EnsureCapacity(count);
+
+		for (size_t idx = 0; idx < count; ++idx)
+		{
+			K& key = keys[idx];
+			V& value = values[idx];
+			EmplaceNoGrow(std::move(key), std::move(value));
+		}
+	}
+
+	template <typename KeyVal, typename... Args>
+	bool TryEmplace(KeyVal&& key, Args&&... args)
 	{
 		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		for (auto i = start;; i = (i + 1) & last_index)
 		{
 			if (!m_used[i])
 			{
-				Insert(std::forward<A>(key), V(std::forward<Args>(args)...), i);
+				Insert(std::forward<KeyVal>(key), V(std::forward<Args>(args)...), i);
 				return true; // inserted successfully
 			}
 
@@ -375,16 +437,16 @@ public:
 			std::cout << "\n";
 		};
 		auto print_arrays = [this, print_array](const bool before) -> void
-		{
-			print_array(before, m_used);
-			print_array(before, m_keys);
-			//print_array(before, m_values);
+			{
+				print_array(before, m_used);
+				print_array(before, m_keys);
+				//print_array(before, m_values);
 
-		// [0,0,0,0,0,0,0,0,0,0]
-		// [0,0,0,4,5,6,7,8,9,0]
-		// [0,0,0,D,E,F,G,H,I,J]
+			// [0,0,0,0,0,0,0,0,0,0]
+			// [0,0,0,4,5,6,7,8,9,0]
+			// [0,0,0,D,E,F,G,H,I,J]
 
-		};
+			};
 
 		auto [start, last_index] = this->GetSlot(key, m_data_size);
 		auto inc = 0; // offset to start index
@@ -478,7 +540,7 @@ public:
 
 	void Rehash(size_t new_capacity) {
 
-		new_capacity = this->EnsureSize(new_capacity);
+		new_capacity = this->FormatCapacity(new_capacity);
 
 		if (new_capacity < m_count)
 			throw std::out_of_range("New capacity is smaller than the current size of the map");
@@ -559,6 +621,26 @@ private:
 	}
 
 	template <typename A, typename B>
+	void EmplaceNoGrow(A&& key, B&& value)
+	{
+		auto [start, last_index] = this->GetSlot(key, m_data_size);
+		for (auto i = start; ; i = (i + 1) & last_index)
+		{
+			if (!m_used[i])
+			{
+				InsertNoGrow(std::forward<A>(key), std::forward<B>(value), i);
+				break;
+			}
+
+			if (m_keys[i] == key)
+			{
+				m_values[i] = std::forward<B>(value);
+				break;
+			}
+		}
+	}
+
+	template <typename A, typename B>
 	void Insert(A&& key, B&& new_value, size_t i)
 	{
 		m_used[i] = true;
@@ -570,12 +652,18 @@ private:
 			Resize(m_data_size * 2);
 	}
 
-	template<typename A, typename B>
-	void PutWithNewSize(A&& key, B&& value, const size_t new_size)
+	template <typename A, typename B>
+	void InsertNoGrow(A&& key, B&& new_value, size_t i)
 	{
-		if (!m_used_new || !m_keys_new || !m_values_new)
-			unreachable();
+		m_used[i] = true;
+		m_keys[i] = std::forward<A>(key);
+		m_values[i] = std::forward<B>(new_value);
+		m_count++;
+	}
 
+	template<typename A, typename B>
+	void EmplaceNewSize(A&& key, B&& value, const size_t new_size)
+	{
 		auto [start, last_index] = this->GetSlot(key, new_size);
 		for (auto i = start; ; i = (i + 1) & last_index)
 		{
@@ -608,7 +696,7 @@ private:
 			if (!m_used[i])
 				continue;
 
-			PutWithNewSize(std::move(m_keys[i]), std::move(m_values[i]), new_size);
+			EmplaceNewSize(std::move(m_keys[i]), std::move(m_values[i]), new_size);
 		}
 
 		// Move the new arrays into place
@@ -618,6 +706,18 @@ private:
 
 		// Clear temporaries (unique_ptr reset is automatic after move)
 		m_data_size = new_size;
+	}
+
+	void EnsureCapacity(const size_t count)
+	{
+		const auto free = m_data_size - m_count;
+		const size_t free_lf = (size_t)((double)free * max_load_factor);
+		if (count < free_lf)
+			return; // enough space
+
+		const auto need = count - free_lf;
+		auto new_size = this->FormatCapacity(m_data_size + need);
+		Resize(new_size);
 	}
 };
 
@@ -640,7 +740,7 @@ class LinearMap : public LinearGenericMap<size_t, T>
 public:
 
 	explicit LinearMap(size_t capacity = 128)
-	: LinearGenericMap<size_t, T>(capacity, &IntHash)
+		: LinearGenericMap<size_t, T>(capacity, &IntHash)
 	{
 	}
 

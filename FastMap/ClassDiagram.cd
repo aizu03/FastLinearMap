@@ -3,12 +3,12 @@
   <Class Name="AzHashBase&lt;K, V&gt;">
     <Position X="3.5" Y="2.5" Width="1.5" />
     <TypeIdentifier>
-      <HashCode>AAAAAAAAAIAAAAAAAAAAAAAECAAAAAAAAAAAAEAAAAA=</HashCode>
-      <FileName>include\UnitTest.h</FileName>
+      <HashCode>AAAAAAAAAIAAAAAAAAAAAAAEAAAAAAAAAAAAAEABAAA=</HashCode>
+      <FileName>include\LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
   <Class Name="LinearGenericMap&lt;K, V&gt;">
-    <Position X="5.75" Y="2.5" Width="2.75" />
+    <Position X="5.75" Y="2.5" Width="3.75" />
     <NestedTypes>
       <Class Name="LinearGenericMap&lt;K, V&gt;::Iterator" Collapsed="true">
         <TypeIdentifier>
@@ -17,15 +17,15 @@
       </Class>
     </NestedTypes>
     <TypeIdentifier>
-      <HashCode>ABAEEEQSAAAggCFJAAAAECASCBAAAAAAAAQmAAVQQQw=</HashCode>
-      <FileName>include\UnitTest.h</FileName>
+      <HashCode>ABBEEEQiAAAkgCFJAAAAECAyCBAAAAAAgEQmAAVQQQQ=</HashCode>
+      <FileName>include\LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
   <Class Name="LinearMap&lt;T&gt;">
     <Position X="3.5" Y="5.75" Width="1.5" />
     <TypeIdentifier>
-      <HashCode>BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
-      <FileName>include\UnitTest.h</FileName>
+      <HashCode>BAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>include\LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
   <Font Name="Segoe UI" Size="9" />
