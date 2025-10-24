@@ -9,6 +9,7 @@
 #include <iostream>
 #include <random>
 #include <string>
+#include <unordered_set>
 
 #if defined(__clang__)
 #   define NO_OPTIMIZE_BEGIN  __attribute__((optnone))
@@ -24,8 +25,6 @@
 #   define NO_OPTIMIZE_END
 #endif
 
-struct MyVector { std::vector<int> data; };
-
 #define assert_always(expr) \
     do { \
         if (!(expr)) { \
@@ -35,8 +34,12 @@ struct MyVector { std::vector<int> data; };
         } \
     } while (0)
 
+struct MyVector { std::vector<int> data; };
+
+using namespace LinearProbing;
+
 NO_OPTIMIZE_BEGIN
-static void TestIntMap()
+static void TestBasic()
 {
     LinearMap<int> map(8); // small initial size to force resize
 
@@ -102,7 +105,62 @@ static void TestIntMap()
     auto e2 = map.TryEmplace(16, 123);
     assert_always(e2 != e1);
 
-    std::cout << "TestIntMap passed!\n";
+    LinearCoreMap<std::string, int> str_map;
+	str_map.Emplace("hello", 321);
+	auto& v = str_map.Get("hello");
+
+    for (auto [key, value] : str_map)
+    {
+        value = 444;
+    }
+
+    assert_always(v == 444);
+
+    LinearSet<int> set;
+
+    for (int i = 0; i < 99; ++i)
+    {
+        set.Emplace(i);
+    }
+
+    set.Rehash(1024);
+
+    for (int i = 0; i < 99; ++i)
+    {
+        assert_always(set.Contains(i));
+    }
+
+    for (int i = 100; i < 200; ++i)
+    {
+        assert_always(!set.Contains(i));
+    }
+
+    LinearSet<std::string> set2;
+    LinearSet<std::string> set3;
+    std::vector<std::string> keys;
+    for (int i = 0; i < 36; ++i)
+    {
+		keys.push_back("Key" + std::to_string(i));
+    }
+
+    set2.EmplaceAll(keys);
+
+	set3 = set2; // test copy assignment
+
+    for (int i = 0; i < 36; ++i)
+    {
+        assert_always(set2.Contains("Key" + std::to_string(i)));
+    }
+
+    auto characters = 0;
+    for (auto& str : set2)
+    {
+		characters += str.size();
+    }
+
+    assert_always(characters == 170);
+
+    std::cout << "TestBasic passed!\n";
 }
 NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
@@ -235,7 +293,7 @@ static void TestEmplaceAll()
     assert_always(map.Get(5) == 66);
 
 
-    LinearGenericMap<std::string, int> map2;
+    LinearCoreMap<std::string, int> map2;
 
 	std::vector<std::tuple<std::string, int>> pairs2;
 
@@ -348,7 +406,6 @@ static bool SafeUnorderedContains(std::unordered_map<size_t, int>& map, const si
 }
 NO_OPTIMIZE_END
 
-
 static void BenchmarkLinearMapVsUnorderedMap()
 {
     constexpr size_t num_elements = 1'000'000;
@@ -434,7 +491,7 @@ static void BenchmarkLinearMapVsUnorderedMap()
 
 static void RunAllTests()
 {
-    TestIntMap();
+    TestBasic();
     TestStructMap();
     TestRandomStress();
     TestIterator();
