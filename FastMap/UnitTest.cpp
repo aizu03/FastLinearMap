@@ -137,6 +137,7 @@ static void TestBasic()
 
     LinearSet<std::string> set2;
     LinearSet<std::string> set3;
+
     std::vector<std::string> keys;
     for (int i = 0; i < 36; ++i)
     {

@@ -81,6 +81,9 @@ Get             34.1008         346.833         10.1708x
 
 namespace LinearProbing
 {
+	template<class T>
+	using HashFunction = size_t(*)(const T& key);
+
 	namespace Internal
 	{
 		template <class T>
@@ -88,7 +91,7 @@ namespace LinearProbing
 		{
 		protected:
 
-			size_t(*m_hash)(const T&) = nullptr;
+			HashFunction<T> m_hash = nullptr;
 			size_t m_count = 0;
 			size_t m_data_size = 0;
 			static constexpr double max_load_factor = 0.6;
@@ -122,7 +125,20 @@ namespace LinearProbing
 				Resize(new_capacity);
 			}
 
+			void SetHashFunction(HashFunction<T> hash_func)
+			{
+				m_hash = hash_func;
+			}
+
 		protected:
+
+			void SetDefaultHash()
+			{
+				m_hash = [](const T& key)
+					{
+						return std::hash<T>{}(key);
+					};
+			}
 
 			[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const T& key, const size_t data_size)
 			{
@@ -222,7 +238,6 @@ namespace LinearProbing
 		std::unique_ptr<V[]>  m_values_new;
 		std::unique_ptr<bool[]>   m_used_new;
 
-
 	private:
 
 		K m_default_key{}; // never modify this
@@ -230,13 +245,13 @@ namespace LinearProbing
 
 	public:
 
-		explicit LinearCoreMap(size_t capacity, size_t(*hash_func)(const K&))
+		explicit LinearCoreMap(size_t capacity, HashFunction<K> hash_func)
 		{
 			LinearCoreMap::Init(this->FormatCapacity(capacity));
 			this->m_hash = hash_func;
 		}
 
-		explicit LinearCoreMap(size_t(*hash_func)(const K&))
+		explicit LinearCoreMap(HashFunction<K> hash_func)
 		{
 			LinearCoreMap::Init();
 			this->m_hash = hash_func;
@@ -245,10 +260,32 @@ namespace LinearProbing
 		explicit LinearCoreMap()
 		{
 			LinearCoreMap::Init();
-			this->m_hash = [](const K& key)
-				{
-					return std::hash<K>{}(key);
-				};
+		}
+
+		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
+			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, K>&&
+		std::convertible_to<std::ranges::range_reference_t<ValueRange>, V>
+			explicit LinearCoreMap(KeyRange& keys, ValueRange& values)
+		{
+			LinearCoreMap::Init();
+			EmplaceAll(keys, values);
+		}
+
+		template <std::ranges::input_range PairRange>
+			requires requires(const std::ranges::range_value_t<PairRange>& p) {
+				{ std::get<0>(p) } -> std::convertible_to<K>;
+				{ std::get<1>(p) } -> std::convertible_to<V>;
+		}
+		explicit LinearCoreMap(PairRange& pairs)
+		{
+			LinearCoreMap::Init();
+			EmplaceAll(pairs);
+		}
+
+		explicit LinearCoreMap(K* keys, V* values, const size_t count)
+		{
+			LinearCoreMap::Init();
+			EmplaceAll(keys, values, count);
 		}
 
 		~LinearCoreMap() override = default;
@@ -326,7 +363,7 @@ namespace LinearProbing
 		{
 			return GetOrCreate(key, V{});
 		}
-		
+
 		const V& operator[](const K& key) const {
 
 			return Get(key);
@@ -631,11 +668,11 @@ namespace LinearProbing
 		};
 
 		Iterator begin() {
-			 return Iterator(m_keys.get(), m_values.get(), m_used.get(), 0, this->m_data_size);
+			return Iterator(m_keys.get(), m_values.get(), m_used.get(), 0, this->m_data_size);
 		}
 
 		Iterator end() {
-			 return Iterator(m_keys.get(), m_values.get(), m_used.get(), this->m_data_size, this->m_data_size);
+			return Iterator(m_keys.get(), m_values.get(), m_used.get(), this->m_data_size, this->m_data_size);
 		}
 
 	private:
@@ -646,6 +683,7 @@ namespace LinearProbing
 			m_values = std::make_unique<V[]>(capacity);
 			m_used = std::make_unique<bool[]>(capacity);
 			this->m_data_size = capacity;
+			this->SetDefaultHash();
 		}
 
 		void Resize(const size_t new_size) override
@@ -767,25 +805,36 @@ namespace LinearProbing
 
 	public:
 
-		explicit LinearSet(size_t capacity, size_t(*hash_func)(const K&))
+		explicit LinearSet(size_t capacity, HashFunction<K> hash_func)
 		{
 			LinearSet::Init(this->FormatCapacity(capacity));
 			this->m_hash = hash_func;
 		}
 
-		explicit LinearSet(size_t(*hash_func)(const K&))
+		explicit LinearSet(HashFunction<K> hash_func)
 		{
 			LinearSet::Init();
 			this->m_hash = hash_func;
 		}
 
+		template <std::ranges::input_range KeyRange>
+			requires std::convertible_to<std::ranges::range_value_t<KeyRange>, K>
+		explicit LinearSet(KeyRange& keys)
+		{
+			LinearSet::Init();
+			EmplaceAll(keys);
+		}
+
+		explicit LinearSet(K* keys, const size_t count)
+		{
+			LinearSet::Init();
+			EmplaceAll(keys, count);
+		}
+
 		explicit LinearSet()
 		{
 			LinearSet::Init();
-			this->m_hash = [](const K& key)
-				{
-					return std::hash<K>{}(key);
-				};
+			this->SetDefaultHash();
 		}
 
 		~LinearSet() override = default;
@@ -898,7 +947,7 @@ namespace LinearProbing
 
 		void EmplaceAll(K* keys, const size_t count)
 		{
-			if (!keys  || count == 0)
+			if (!keys || count == 0)
 				return;
 
 			this->EnsureCapacity(count);
@@ -1064,6 +1113,7 @@ namespace LinearProbing
 			m_keys = std::make_unique<K[]>(capacity);
 			m_used = std::make_unique<bool[]>(capacity);
 			this->m_data_size = capacity;
+			this->SetDefaultHash();
 		}
 
 		void Resize(const size_t new_size) override
@@ -1142,9 +1192,8 @@ namespace LinearProbing
 		explicit LinearMap(size_t capacity = 128)
 			: LinearCoreMap<size_t, T>(capacity, &IntHash)
 		{
-		}
 
-		using Base = LinearCoreMap<size_t, T>;
+		}
 
 	private:
 
