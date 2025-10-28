@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <ClassDiagram MajorVersion="1" MinorVersion="1">
   <Class Name="LinearProbing::LinearCoreMap&lt;K, V&gt;">
-    <Position X="5.75" Y="5.5" Width="3.75" />
+    <Position X="8" Y="5.5" Width="3.75" />
     <Members>
       <Method Name="begin" Hidden="true" />
       <Method Name="EmplaceNewSize" Hidden="true" />
@@ -10,8 +10,10 @@
       <Method Name="GetOrCreateImpl" Hidden="true" />
       <Method Name="Init" Hidden="true" />
       <Method Name="Insert" Hidden="true" />
+      <Method Name="InsertAndGrow" Hidden="true" />
       <Method Name="InsertNoGrow" Hidden="true" />
       <Method Name="Resize" Hidden="true" />
+      <Method Name="TryEmplaceImpl" Hidden="true" />
     </Members>
     <Compartments>
       <Compartment Name="Nested Types" Collapsed="false" />
@@ -23,27 +25,40 @@
         </TypeIdentifier>
       </Class>
     </NestedTypes>
+    <InheritanceLine Type="LinearProbing::Internal::LinearHash&lt;T&gt;" FixedToPoint="true">
+      <Path>
+        <Point X="7.25" Y="5.795" />
+        <Point X="8" Y="5.795" />
+      </Path>
+    </InheritanceLine>
     <TypeIdentifier>
-      <HashCode>AABAEEQCAAAkAEFJAAAAACAwCBkAAAAAgEQiAAFQQAQ=</HashCode>
+      <HashCode>CABAEEQCAAAkAEFJAAAAACAwCBkAAAAAgEQiAAFQQgQ=</HashCode>
       <FileName>include\LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
   <Class Name="LinearProbing::LinearMap&lt;T&gt;">
-    <Position X="3.75" Y="5.5" Width="1.5" />
+    <Position X="4" Y="5.5" Width="1.5" />
+    <InheritanceLine Type="LinearProbing::LinearCoreMap&lt;K, V&gt;" FixedFromPoint="true">
+      <Path>
+        <Point X="8" Y="10.802" />
+        <Point X="4.75" Y="10.802" />
+        <Point X="4.75" Y="6.925" />
+      </Path>
+    </InheritanceLine>
     <TypeIdentifier>
       <HashCode>BAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAA=</HashCode>
       <FileName>include\LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
   <Class Name="LinearProbing::Internal::LinearHash&lt;T&gt;">
-    <Position X="9" Y="1" Width="1.5" />
+    <Position X="5.75" Y="5.5" Width="1.5" />
     <TypeIdentifier>
-      <HashCode>ABABAAAgAIAAgCAAAAAAEAAGAAAAAAAAAAAGAEUBAAA=</HashCode>
+      <HashCode>ABABABAgAIAAgCAAAAAAEAAGAAAAAAABAAAGAEVBAAA=</HashCode>
       <FileName>include\LinearMap.h</FileName>
     </TypeIdentifier>
   </Class>
   <Class Name="LinearProbing::LinearSet&lt;K&gt;">
-    <Position X="10" Y="5.5" Width="3.75" />
+    <Position X="12" Y="5.5" Width="3.75" />
     <Members>
       <Method Name="begin" Hidden="true" />
       <Method Name="EmplaceNewSize" Hidden="true" />
@@ -64,6 +79,14 @@
         </TypeIdentifier>
       </Class>
     </NestedTypes>
+    <InheritanceLine Type="LinearProbing::Internal::LinearHash&lt;T&gt;" FixedToPoint="true">
+      <Path>
+        <Point X="6.5" Y="5.5" />
+        <Point X="6.5" Y="5.125" />
+        <Point X="14.062" Y="5.125" />
+        <Point X="14.062" Y="5.5" />
+      </Path>
+    </InheritanceLine>
     <TypeIdentifier>
       <HashCode>gABAEEACAAAEAAAJAEAAAAAwCBAAAAAAgEQiAAFQAAQ=</HashCode>
       <FileName>include\LinearMap.h</FileName>

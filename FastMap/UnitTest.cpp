@@ -60,8 +60,7 @@ static void TestBasic()
 
 	map.GetOrCreate(1, 123);
 	assert_always(v == 99887);
-
-	auto one = map[1];
+	assert_always(map[1] == 99887);
 
 	map.Erase(1);
 
