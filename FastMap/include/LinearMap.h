@@ -80,6 +80,15 @@ Get             34.1008         346.833         10.1708x
 #define UNREACHABLE() ((void)0) // fallback
 #endif
 
+#if defined(OPTIMIZED)
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x)   (x)
+#define unlikely(x) (x)
+#endif
+
+
 namespace LinearProbing
 {
 	template<class T>
@@ -447,32 +456,40 @@ namespace LinearProbing
 		/// <param name="key"></param>
 		/// <param name="create_func"></param>
 		/// <returns></returns>
-		template <typename F> requires std::is_invocable_v<F>
-		V& GetOrCreate(const K& key, F&& create_func)
+		template <typename KeyVal, typename F> requires std::is_invocable_v<F>
+		V& GetOrCreate(KeyVal&& key, F&& create_func)
 		{
-			return GetOrCreateImpl(key, std::invoke(std::forward<F>(create_func)));
+			return GetOrCreateImpl(
+				std::forward<KeyVal>(key),
+				[&]() -> V { return std::invoke(std::forward<F>(create_func)); }
+			);
 		}
 
-		V& GetOrCreate(const K& key, const V& v)
+		template <typename KeyVal, typename... Args>
+		V& GetOrCreate(KeyVal&& key, Args&&... args)
 		{
-			return GetOrCreateImpl(key, v);
-		}
-
-		V& GetOrCreate(const K& key, V&& v)
-		{
-			return GetOrCreateImpl(key, std::move(v));
+			return GetOrCreateImpl(
+				std::forward<KeyVal>(key),
+				[&]() -> V { return V(std::forward<Args>(args)...); }
+			);
 		}
 
 		template <typename KeyVal, typename... Args>
 		bool TryEmplace(KeyVal&& key, Args&&... args)
 		{
-			return TryEmplaceImpl(std::forward<KeyVal>(key), V(std::forward<Args>(args)...));
+			return TryEmplaceImpl(
+				std::forward<KeyVal>(key),
+				[&]() -> V { return V(std::forward<Args>(args)...); }
+			);
 		}
 
 		template <typename KeyVal, typename F> requires std::is_invocable_v<F>
 		bool TryEmplace(KeyVal&& key, F&& create_func)
 		{
-			return TryEmplaceImpl(std::forward<KeyVal>(key), std::invoke(std::forward<F>(create_func)));
+			return TryEmplaceImpl(
+				std::forward<KeyVal>(key),
+				[&]() -> V { return std::invoke(std::forward<F>(create_func)); }
+			);
 		}
 
 		template <typename KeyType, typename ValType>
@@ -498,7 +515,7 @@ namespace LinearProbing
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
 			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, K>&&
 		std::convertible_to<std::ranges::range_reference_t<ValueRange>, V>
-			void EmplaceAll(KeyRange& keys, ValueRange& values)
+		void EmplaceAll(KeyRange& keys, ValueRange& values)
 		{
 			auto key_it = std::begin(keys);
 			auto key_end = std::end(keys);
@@ -743,32 +760,29 @@ namespace LinearProbing
 			this->m_data_size = new_size;
 		}
 
-		template <typename A, typename B>
-		V& GetOrCreateImpl(A&& key, B&& new_value)
+		template <typename KeyVal, typename ValueCreator>
+		V& GetOrCreateImpl(KeyVal&& key, ValueCreator&& make_value)
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
 			{
 				if (!m_used[i])
 				{
-					const bool will_resize = this->m_count + 1 > (size_t)((double)this->m_data_size * this->max_load_factor);
+					const bool will_resize = this->m_count + 1 >
+						(size_t)((double)this->m_data_size * this->max_load_factor);
 
-#if defined(OPTIMIZED)
-					if (__builtin_expect(will_resize, 0))
-#else
-					if (will_resize)
-#endif
+					if (unlikely(will_resize))
 					{
 						auto copy = key;
-						InsertAndGrow(std::forward<A>(key), std::forward<B>(new_value), i);
+						InsertAndGrow(std::forward<KeyVal>(key), std::invoke(std::forward<ValueCreator>(make_value)), i);
 						auto [start2, last_index2] = this->GetSlot(copy, this->m_data_size); // now larger size
-						for (auto j = start2;; j = (j + 1) & last_index2)
+						for (auto j = start2; ; j = (j + 1) & last_index2)
 							if (m_keys[j] == copy)
-								return m_values[j];  // find and return
+								return m_values[j];
 					}
 
-					InsertNoGrow(std::forward<A>(key), std::forward<B>(new_value), i);
-					return m_values[i]; // return after insert
+					InsertNoGrow(std::forward<KeyVal>(key), std::invoke(std::forward<ValueCreator>(make_value)), i);
+					return m_values[i];
 				}
 
 				if (m_keys[i] == key)
@@ -776,20 +790,20 @@ namespace LinearProbing
 			}
 		}
 
-		template <typename A, typename B>
-		bool TryEmplaceImpl(A&& key, B&& new_value)
+		template <typename KeyVal, typename ValueCreator>
+		bool TryEmplaceImpl(KeyVal&& key, ValueCreator&& make_value)
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
 			{
 				if (!m_used[i])
 				{
-					Insert(std::forward<A>(key), std::forward<B>(new_value), i);
+					Insert(std::forward<KeyVal>(key), std::invoke(std::forward<ValueCreator>(make_value)), i);
 					return true;
 				}
 
 				if (m_keys[i] == key)
-					return false; // already exists
+					return false;
 			}
 		}
 
@@ -821,7 +835,8 @@ namespace LinearProbing
 			m_values[i] = std::forward<B>(new_value);
 			++this->m_count;
 
-			if ((double)this->m_count / (double)this->m_data_size > this->max_load_factor)
+			const bool grow = (double)this->m_count / (double)this->m_data_size > this->max_load_factor;
+			if (unlikely(grow))
 				Resize(this->m_data_size * 2);
 		}
 
@@ -1252,7 +1267,8 @@ namespace LinearProbing
 			m_keys[i] = std::forward<A>(key);
 			++this->m_count;
 
-			if ((double)this->m_count / (double)this->m_data_size > this->max_load_factor)
+			const bool grow = (double)this->m_count / (double)this->m_data_size > this->max_load_factor;
+			if (unlikely(grow))
 				this->Resize(this->m_data_size * 2);
 		}
 

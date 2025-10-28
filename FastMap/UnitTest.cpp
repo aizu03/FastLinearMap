@@ -34,7 +34,17 @@
         } \
     } while (0)
 
-struct MyVector { std::vector<int> data; };
+struct MyVector
+{
+	std::vector<int> data;
+};
+
+struct Coordinates
+{
+	float x = 0;
+	float y = 0;
+	float z = 0;
+};
 
 using namespace LinearProbing;
 
@@ -47,7 +57,16 @@ static void TestBasic()
 		{
 			return 99887;
 		});
+
+	map.GetOrCreate(1, 123);
 	assert_always(v == 99887);
+
+	map.Erase(1);
+
+	map.TryEmplace(1, [] { return 123; });
+	assert_always(map.Get(1) == 123);
+	map.TryEmplace(1, 456); // should fail
+	assert_always(map.Get(1) == 123);
 
 	map[789] = 123456;
 	auto operator_value = map[789];
@@ -201,6 +220,76 @@ static void TestStructMap()
 	auto& retrieved2 = map2.Get(2012);
 
 	std::cout << "TestStructMap passed!\n";
+}
+NO_OPTIMIZE_END
+NO_OPTIMIZE_BEGIN
+static void TestStructMap2()
+{
+	LinearMap<Coordinates> map;
+	size_t key = 0;
+
+	for (int x = 0; x < 16; ++x)
+	{
+		for (int y = 0; y < 16; ++y)
+		{
+			for (int z = 0; z < 16; ++z)
+			{
+				Coordinates pos;
+				pos.x = (float)x;
+				pos.y = (float)y;
+				pos.z = (float)z;
+
+				map.Emplace(key, std::move(pos));
+				++key;
+			}
+		}
+	}
+
+	key = 0;
+
+	for (int x = 0; x < 16; ++x)
+	{
+		for (int y = 0; y < 16; ++y)
+		{
+			for (int z = 0; z < 16; ++z)
+			{
+				Coordinates& pos = map.Get(key);
+
+				assert_always((int)pos.x == x);
+				assert_always((int)pos.y == y);
+				assert_always((int)pos.z == z);
+
+				++key;
+			}
+		}
+	}
+
+	key = 0;
+
+	for (int x = 0; x < 16; ++x)
+	{
+		for (int y = 0; y < 16; ++y)
+		{
+			for (int z = 0; z < 16; ++z)
+			{
+				auto result = map.TryEmplace(key, [x, y, z]
+					{
+						Coordinates pos;
+						pos.x = (float)x;
+						pos.y = (float)y;
+						pos.z = (float)z;
+
+						return pos;
+					});
+
+				assert_always(!result);
+
+				++key;
+			}
+		}
+	}
+
+	std::cout << "TestStructMap2 passed!\n";
 }
 NO_OPTIMIZE_END
 NO_OPTIMIZE_BEGIN
@@ -496,6 +585,7 @@ static void RunAllTests()
 {
 	TestBasic();
 	TestStructMap();
+	TestStructMap2();
 	TestRandomStress();
 	TestIterator();
 	TestErase();
