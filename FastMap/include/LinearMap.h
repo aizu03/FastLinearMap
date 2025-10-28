@@ -145,7 +145,7 @@ namespace LinearProbing
 				if (new_capacity < this->m_count)
 					throw std::out_of_range("New capacity is smaller than the current size of the map");
 
-				Resize(new_capacity);
+				this->Resize(new_capacity);
 			}
 
 			void SetHashFunction(HashFunction<T> hash_func)
@@ -252,6 +252,8 @@ namespace LinearProbing
 	class LinearCoreMap : public Internal::LinearHash<K> // linear probing hash map
 	{
 	protected:
+
+		// TODO: Test out future optimization by adding 8 empty entries for vectorization and masking
 
 		std::unique_ptr<K[]> m_keys;
 		std::unique_ptr<V[]>  m_values;
@@ -388,7 +390,7 @@ namespace LinearProbing
 
 		V& operator[](const K& key)
 		{
-			return GetOrCreate(key, V{});
+			return GetOrCreate(key, [this] {return m_default_value; });
 		}
 
 		const V& operator[](const K& key) const {
@@ -837,7 +839,7 @@ namespace LinearProbing
 
 			const bool grow = (double)this->m_count / (double)this->m_data_size > this->max_load_factor;
 			if (unlikely(grow))
-				Resize(this->m_data_size * 2);
+				this->Resize(this->m_data_size * 2);
 		}
 
 		template <typename A, typename B>
@@ -847,7 +849,7 @@ namespace LinearProbing
 			m_keys[i] = std::forward<A>(key);
 			m_values[i] = std::forward<B>(new_value);
 			++this->m_count;
-			Resize(this->m_data_size * 2);
+			this->Resize(this->m_data_size * 2);
 		}
 
 		template <typename A, typename B>

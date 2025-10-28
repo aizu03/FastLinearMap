@@ -61,6 +61,8 @@ static void TestBasic()
 	map.GetOrCreate(1, 123);
 	assert_always(v == 99887);
 
+	auto one = map[1];
+
 	map.Erase(1);
 
 	map.TryEmplace(1, [] { return 123; });
