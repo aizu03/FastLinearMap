@@ -72,11 +72,12 @@ Get             34.1008         346.833         10.1708x
 #include <iomanip>
 
 #if defined(__clang__) or defined(__GNUC__)
-#define unreachable()  __builtin_unreachable()
+#define OPTIMIZED
+#define UNREACHABLE()  __builtin_unreachable()
 #elif defined(_MSC_VER)
-#define unreachable() __assume(0)
+#define UNREACHABLE() __assume(0)
 #else
-#define unreachable() ((void)0) // fallback
+#define UNREACHABLE() ((void)0) // fallback
 #endif
 
 namespace LinearProbing
@@ -94,7 +95,7 @@ namespace LinearProbing
 			HashFunction<T> m_hash = nullptr;
 			size_t m_count = 0;
 			size_t m_data_size = 0;
-			static constexpr double max_load_factor = 0.6;
+			static constexpr double max_load_factor = 0.7;
 
 		public:
 
@@ -115,6 +116,19 @@ namespace LinearProbing
 				return static_cast<double>(m_count) / static_cast<double>(m_data_size);
 			}
 
+			virtual void Reserve(const size_t capacity)
+			{
+				throw std::runtime_error("not implemented");
+			}
+
+			virtual void Clear() {
+				throw std::runtime_error("not implemented");
+			}
+
+			/// <summary>
+			/// Will grow or shrink the map to 'new_capacity', while keeping existing data.
+			/// </summary>
+			/// <param name="new_capacity"></param>
 			void Rehash(size_t new_capacity)
 			{
 				new_capacity = FormatCapacity(new_capacity);
@@ -143,12 +157,12 @@ namespace LinearProbing
 			[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const T& key, const size_t data_size)
 			{
 				if (!m_hash)
-					unreachable();
+					UNREACHABLE();
 
 				const size_t hash = HashImpl(m_hash(key), data_size);
 				const auto size = data_size;
 
-#if defined(__clang__) or defined(__GNUC__)
+#if defined(OPTIMIZED)
 				__builtin_assume(size != 0 && (size & (size - 1)) == 0); // always power of two
 #endif
 
@@ -187,7 +201,7 @@ namespace LinearProbing
 				}
 				else if (hash_id == 3) // Golden ratio
 				{
-					constexpr uint64_t golden_ratio = 11400714819323198485ULL;
+					constexpr size_t golden_ratio = 11400714819323198485ULL;
 					return (x * golden_ratio) & (data_size - 1);
 				}
 
@@ -245,9 +259,9 @@ namespace LinearProbing
 
 	public:
 
-		explicit LinearCoreMap(size_t capacity, HashFunction<K> hash_func)
+		explicit LinearCoreMap(const size_t capacity, HashFunction<K> hash_func)
 		{
-			LinearCoreMap::Init(this->FormatCapacity(capacity));
+			LinearCoreMap::Init(capacity);
 			this->m_hash = hash_func;
 		}
 
@@ -297,6 +311,7 @@ namespace LinearProbing
 		{
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 
 			std::copy_n(other.m_keys.get(), other.m_data_size, m_keys.get());
 			std::copy_n(other.m_values.get(), other.m_data_size, m_values.get());
@@ -310,6 +325,7 @@ namespace LinearProbing
 
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 
 			m_keys = std::make_unique<K[]>(other.m_data_size);
 			m_values = std::make_unique<V[]>(other.m_data_size);
@@ -332,6 +348,7 @@ namespace LinearProbing
 		{
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 
 			other.m_count = 0;
 			other.m_data_size = 0;
@@ -352,6 +369,7 @@ namespace LinearProbing
 
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 
 			other.m_count = 0;
 			other.m_data_size = 0;
@@ -369,12 +387,30 @@ namespace LinearProbing
 			return Get(key);
 		}
 
-		void Clear()
+		/// <summary>
+		/// Clear all data from the map, while keeping the allocated memory.
+		/// </summary>
+		void Clear() override
 		{
-			// empty out, and keep allocated memory
 			std::fill_n(m_used.get(), this->m_data_size, false);
 			std::fill_n(m_keys.get(), this->m_data_size, 0);
 			this->m_count = 0;
+		}
+
+		/// <summary>
+		/// Will allocate memory for at least 'capacity' elements. Existing data will be lost.
+		/// Should only be used on an empty map, or to clear this map.
+		/// Don't use this before using 'EmplaceAll'. Because, it will ensure capacity internally.
+		/// </summary>
+		/// <param name="capacity">Desired map size</param>
+		void Reserve(const size_t capacity) override
+		{
+			auto size = this->FormatCapacity(capacity);
+			m_keys = std::make_unique<K[]>(size);
+			m_values = std::make_unique<V[]>(size);
+			m_used = std::make_unique<bool[]>(size);
+			this->m_count = 0;
+			this->m_data_size = size;
 		}
 
 		[[nodiscard]] bool Contains(const K& key)
@@ -403,6 +439,14 @@ namespace LinearProbing
 			}
 		}
 
+		/// <summary>
+		/// Will return the value for 'key', if found.
+		/// Or emplace a new value created by 'create_func'.
+		/// </summary>
+		/// <typeparam name="F"></typeparam>
+		/// <param name="key"></param>
+		/// <param name="create_func"></param>
+		/// <returns></returns>
 		template <typename F> requires std::is_invocable_v<F>
 		V& GetOrCreate(const K& key, F&& create_func)
 		{
@@ -417,6 +461,18 @@ namespace LinearProbing
 		V& GetOrCreate(const K& key, V&& v)
 		{
 			return GetOrCreateImpl(key, std::move(v));
+		}
+
+		template <typename KeyVal, typename... Args>
+		bool TryEmplace(KeyVal&& key, Args&&... args)
+		{
+			return TryEmplaceImpl(std::forward<KeyVal>(key), V(std::forward<Args>(args)...));
+		}
+
+		template <typename KeyVal, typename F> requires std::is_invocable_v<F>
+		bool TryEmplace(KeyVal&& key, F&& create_func)
+		{
+			return TryEmplaceImpl(std::forward<KeyVal>(key), std::invoke(std::forward<F>(create_func)));
 		}
 
 		template <typename KeyType, typename ValType>
@@ -488,23 +544,6 @@ namespace LinearProbing
 				K& key = keys[idx];
 				V& value = values[idx];
 				EmplaceNoGrow(std::move(key), std::move(value));
-			}
-		}
-
-		template <typename KeyVal, typename... Args>
-		bool TryEmplace(KeyVal&& key, Args&&... args)
-		{
-			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
-			for (auto i = start;; i = (i + 1) & last_index)
-			{
-				if (!m_used[i])
-				{
-					Insert(std::forward<KeyVal>(key), V(std::forward<Args>(args)...), i);
-					return true; // inserted successfully
-				}
-
-				if (m_keys[i] == key)
-					return false; // key already present
 			}
 		}
 
@@ -637,7 +676,7 @@ namespace LinearProbing
 			using iterator_category = std::forward_iterator_tag;
 			using difference_type = std::ptrdiff_t;
 
-			Iterator(K* keys, V* values, bool* used, size_t index, size_t size)
+			Iterator(K* keys, V* values, bool* used, const size_t index, const size_t size)
 				: m_keys(keys), m_values(values), m_used(used), m_index(index), m_size(size) {
 				advance();
 			}
@@ -677,12 +716,9 @@ namespace LinearProbing
 
 	private:
 
-		void Init(size_t capacity = 128) override
+		void Init(const size_t capacity = 64) override
 		{
-			m_keys = std::make_unique<K[]>(capacity);
-			m_values = std::make_unique<V[]>(capacity);
-			m_used = std::make_unique<bool[]>(capacity);
-			this->m_data_size = capacity;
+			Reserve(capacity);
 			this->SetDefaultHash();
 		}
 
@@ -715,12 +751,45 @@ namespace LinearProbing
 			{
 				if (!m_used[i])
 				{
-					Insert(std::forward<A>(key), std::forward<B>(new_value), i);
+					const bool will_resize = this->m_count + 1 > (size_t)((double)this->m_data_size * this->max_load_factor);
+
+#if defined(OPTIMIZED)
+					if (__builtin_expect(will_resize, 0))
+#else
+					if (will_resize)
+#endif
+					{
+						auto copy = key;
+						InsertAndGrow(std::forward<A>(key), std::forward<B>(new_value), i);
+						auto [start2, last_index2] = this->GetSlot(copy, this->m_data_size); // now larger size
+						for (auto j = start2;; j = (j + 1) & last_index2)
+							if (m_keys[j] == copy)
+								return m_values[j];  // find and return
+					}
+
+					InsertNoGrow(std::forward<A>(key), std::forward<B>(new_value), i);
 					return m_values[i]; // return after insert
 				}
 
 				if (m_keys[i] == key)
 					return m_values[i];
+			}
+		}
+
+		template <typename A, typename B>
+		bool TryEmplaceImpl(A&& key, B&& new_value)
+		{
+			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
+			for (auto i = start; ; i = (i + 1) & last_index)
+			{
+				if (!m_used[i])
+				{
+					Insert(std::forward<A>(key), std::forward<B>(new_value), i);
+					return true;
+				}
+
+				if (m_keys[i] == key)
+					return false; // already exists
 			}
 		}
 
@@ -757,6 +826,16 @@ namespace LinearProbing
 		}
 
 		template <typename A, typename B>
+		void InsertAndGrow(A&& key, B&& new_value, size_t i)
+		{
+			m_used[i] = true;
+			m_keys[i] = std::forward<A>(key);
+			m_values[i] = std::forward<B>(new_value);
+			++this->m_count;
+			Resize(this->m_data_size * 2);
+		}
+
+		template <typename A, typename B>
 		void InsertNoGrow(A&& key, B&& new_value, size_t i)
 		{
 			m_used[i] = true;
@@ -786,7 +865,6 @@ namespace LinearProbing
 				}
 			}
 		}
-
 	};
 
 	template <class K>
@@ -805,9 +883,9 @@ namespace LinearProbing
 
 	public:
 
-		explicit LinearSet(size_t capacity, HashFunction<K> hash_func)
+		explicit LinearSet(const size_t capacity, HashFunction<K> hash_func)
 		{
-			LinearSet::Init(this->FormatCapacity(capacity));
+			LinearSet::Init(capacity);
 			this->m_hash = hash_func;
 		}
 
@@ -834,7 +912,6 @@ namespace LinearProbing
 		explicit LinearSet()
 		{
 			LinearSet::Init();
-			this->SetDefaultHash();
 		}
 
 		~LinearSet() override = default;
@@ -845,6 +922,7 @@ namespace LinearProbing
 		{
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 
 			std::copy_n(other.m_keys.get(), other.m_data_size, m_keys.get());
 			std::copy_n(other.m_used.get(), other.m_data_size, m_used.get());
@@ -857,6 +935,7 @@ namespace LinearProbing
 
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 
 			m_keys = std::make_unique<K[]>(other.m_data_size);
 			m_used = std::make_unique<bool[]>(other.m_data_size);
@@ -875,6 +954,7 @@ namespace LinearProbing
 		{
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 
 			other.m_count = 0;
 			other.m_data_size = 0;
@@ -891,17 +971,35 @@ namespace LinearProbing
 			m_used_new = std::move(other.m_used_new);
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
+			this->m_hash = other.m_hash;
 			other.m_count = 0;
 			other.m_data_size = 0;
 			return *this;
 		}
 
-		void Clear()
+		/// <summary>
+		/// Clear all data from the map, while keeping the allocated memory.
+		/// </summary>
+		void Clear() override
 		{
-			// empty out, and keep allocated memory
 			std::fill_n(m_used.get(), this->m_data_size, false);
 			std::fill_n(m_keys.get(), this->m_data_size, 0);
 			this->m_count = 0;
+		}
+
+		/// <summary>
+		/// Will allocate memory for at least 'capacity' elements. Existing data will be lost.
+		/// Should only be used on an empty map, or to clear this map.
+		/// Don't use this before using 'EmplaceAll'. Because, it will ensure capacity internally.
+		/// </summary>
+		/// <param name="capacity">Desired map size</param>
+		void Reserve(const size_t capacity) override
+		{
+			auto new_size = this->FormatCapacity(capacity);
+			m_keys = std::make_unique<K[]>(new_size);
+			m_used = std::make_unique<bool[]>(new_size);
+			this->m_count = 0;
+			this->m_data_size = new_size;
 		}
 
 		[[nodiscard]] bool Contains(const K& key)
@@ -1064,7 +1162,7 @@ namespace LinearProbing
 
 		class Iterator {
 		public:
-			Iterator(K* keys, bool* used, size_t index, size_t size)
+			Iterator(K* keys, bool* used, const size_t index, const size_t size)
 				: m_keys(keys), m_used(used), m_index(index), m_size(size)
 			{
 				advance();
@@ -1108,11 +1206,9 @@ namespace LinearProbing
 
 	private:
 
-		void Init(size_t capacity = 128) override
+		void Init(const size_t capacity = 64) override
 		{
-			m_keys = std::make_unique<K[]>(capacity);
-			m_used = std::make_unique<bool[]>(capacity);
-			this->m_data_size = capacity;
+			Reserve(capacity);
 			this->SetDefaultHash();
 		}
 
@@ -1189,8 +1285,30 @@ namespace LinearProbing
 	{
 	public:
 
-		explicit LinearMap(size_t capacity = 128)
-			: LinearCoreMap<size_t, T>(capacity, &IntHash)
+		explicit LinearMap(size_t capacity = 64) : LinearCoreMap<size_t, T>(capacity, &IntHash)
+		{
+
+		}
+
+		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
+			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, size_t>&&
+		std::convertible_to<std::ranges::range_reference_t<ValueRange>, T>
+			explicit LinearMap(KeyRange& keys, ValueRange& values) : LinearCoreMap<size_t, T>(keys, values)
+		{
+
+		}
+
+		template <std::ranges::input_range PairRange>
+			requires requires(const std::ranges::range_value_t<PairRange>& p) {
+				{ std::get<0>(p) } -> std::convertible_to<size_t>;
+				{ std::get<1>(p) } -> std::convertible_to<T>;
+		}
+		explicit LinearMap(PairRange& pairs) : LinearCoreMap<size_t, T>(pairs)
+		{
+
+		}
+
+		explicit LinearMap(size_t* keys, T* values, const size_t count) : LinearCoreMap<size_t, T>(keys, values, count)
 		{
 
 		}
