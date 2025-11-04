@@ -52,7 +52,7 @@ using namespace LinearProbing;
 #if defined(LMAP_DEV)
 
 template <class T>
-class DebugMap : public LinearMap<T>
+class DebugMap : public LinearCoreMap<size_t, T>
 {
 
 public:
@@ -166,9 +166,9 @@ static void TestBasic()
 	for (size_t i = 21; i <= 25; i++)
 	{
 		int& val = map.GetOrCreate(i, [i]
-		{
-			return (int)(i * 7);
-		});
+			{
+				return (int)(i * 7);
+			});
 
 		assert_always(val == (int)(i * 7));
 		val += 1; // test reference
@@ -307,6 +307,9 @@ static void TestStructMap2()
 			for (int z = 0; z < 16; ++z)
 			{
 				Coordinates& pos = map.Get(key);
+
+				if (x > 0)
+					assert_always(map.HasValue(pos));
 
 				assert_always((int)pos.x == x);
 				assert_always((int)pos.y == y);
@@ -700,6 +703,10 @@ static void Examples()
 	map[444] = "444";
 
 	std::string& val = map.Get(1); // val == "one"
+
+	assert(map.HasValue(val));
+	assert(!map.HasValue(map.Get(999)));
+
 	val = "uno"; // modify value
 
 	// Emplace a new value, if key does not exist

@@ -219,7 +219,7 @@ namespace LinearProbing
 
 			static size_t FormatCapacity(size_t n)
 			{
-				n = std::max(n, 8ull);                     // minimum size
+				n = (std::max)(n, 8ull);                     // minimum size
 				size_t next = 1ull << std::bit_width(n - 1); // next power of two
 				return next;
 			}
@@ -396,6 +396,35 @@ namespace LinearProbing
 		const V& operator[](const K& key) const {
 
 			return Get(key);
+		}
+
+		template <typename T, typename = void>
+		struct HasEqual : std::false_type {};
+
+		template <typename T>
+		struct HasEqual<T, std::void_t<decltype(std::declval<T>() == std::declval<T>())>> : std::true_type {};
+
+		/// <summary>
+		/// Checks if a value differs from the map's default.
+		/// Works for both comparable and trivially copyable types.
+		/// Returns true if uncertain.
+		/// </summary>
+		/// <param name="value"></param>
+		/// <returns>True, if "value" differs from the default of V</returns>
+		[[nodiscard]] bool HasValue(const V& value) const noexcept
+		{
+			if constexpr (HasEqual<V>::value)
+			{
+				return !(m_default_value == value);
+			}
+			else if constexpr (std::is_trivially_copyable_v<V> && sizeof(V) > 0)
+			{
+				return std::memcmp(&m_default_value, &value, sizeof(V)) != 0;
+			}
+			else
+			{
+				return true; // fallback, cannot reliably compare
+			}
 		}
 
 		/// <summary>
@@ -1299,7 +1328,7 @@ namespace LinearProbing
 	};
 
 	template <class T>
-	class LinearMap : public LinearCoreMap<size_t, T>
+	class LinearMap final : public LinearCoreMap<size_t, T>
 	{
 	public:
 
