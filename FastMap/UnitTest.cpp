@@ -48,6 +48,58 @@ struct Coordinates
 
 using namespace LinearProbing;
 
+
+#if defined(LMAP_DEV)
+
+template <class T>
+class DebugMap : public LinearMap<T>
+{
+
+public:
+
+	[[nodiscard]] unsigned CountCollisions(const size_t& key)
+	{
+		unsigned count = 0;
+		auto [start, last_index] = this->GetSlot(key, this->m_data_size);
+		for (auto i = start;; i = (i + 1) & last_index)
+		{
+			if (!this->m_used[i])
+				return count;
+
+			if (this->m_keys[i] == key)
+				return count;
+
+			++count;
+		}
+	}
+
+	void PrintHashDistribution() const
+	{
+		std::cout << this->m_data_size << "\n";
+		std::ofstream file("F:\\map.txt", std::ios::binary);
+
+		if (!file.is_open())
+			return;
+
+		for (auto i = 0ull; i < this->m_data_size; i++)
+		{
+			if (!this->m_used[i])
+			{
+				constexpr char val[] = { 32, 32, 48 };
+				file.write(val, 3);
+				continue;
+			}
+
+			constexpr char val2[] = { 32, 32, 49 };
+			file.write(val2, 3);
+		}
+
+		file.close();
+	}
+};
+
+#endif
+
 NO_OPTIMIZE_BEGIN
 static void TestBasic()
 {
