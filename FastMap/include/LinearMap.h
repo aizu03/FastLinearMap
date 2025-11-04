@@ -163,12 +163,24 @@ namespace LinearProbing
 					};
 			}
 
+			[[nodiscard]] size_t Hash(const T& key) const noexcept
+			{
+				if constexpr (std::is_integral_v<T>)
+				{
+					return static_cast<size_t>(key);
+				}
+				else
+				{
+					return m_hash(key);
+				}
+			}
+
 			[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const T& key, const size_t data_size)
 			{
 				if (!m_hash)
 					UNREACHABLE();
 
-				const size_t hash = HashImpl(m_hash(key), data_size);
+				const size_t hash = HashImpl(Hash(key), data_size);
 				const auto size = data_size;
 
 #if defined(OPTIMIZED)
@@ -270,15 +282,20 @@ namespace LinearProbing
 
 	public:
 
-		explicit LinearCoreMap(const size_t capacity, HashFunction<K> hash_func)
+		explicit LinearCoreMap(const size_t capacity)
 		{
 			LinearCoreMap::Init(capacity);
-			this->m_hash = hash_func;
 		}
 
 		explicit LinearCoreMap(HashFunction<K> hash_func)
 		{
 			LinearCoreMap::Init();
+			this->m_hash = hash_func;
+		}
+
+		explicit LinearCoreMap(const size_t capacity, HashFunction<K> hash_func)
+		{
+			LinearCoreMap::Init(capacity);
 			this->m_hash = hash_func;
 		}
 
@@ -929,15 +946,20 @@ namespace LinearProbing
 
 	public:
 
-		explicit LinearSet(const size_t capacity, HashFunction<K> hash_func)
+		explicit LinearSet(const size_t capacity)
 		{
 			LinearSet::Init(capacity);
-			this->m_hash = hash_func;
 		}
 
 		explicit LinearSet(HashFunction<K> hash_func)
 		{
 			LinearSet::Init();
+			this->m_hash = hash_func;
+		}
+
+		explicit LinearSet(const size_t capacity, HashFunction<K> hash_func)
+		{
+			LinearSet::Init(capacity);
 			this->m_hash = hash_func;
 		}
 
@@ -1332,7 +1354,12 @@ namespace LinearProbing
 	{
 	public:
 
-		explicit LinearMap(size_t capacity = 64) : LinearCoreMap<size_t, T>(capacity, &IntHash)
+		explicit LinearMap() : LinearCoreMap<size_t, T>()
+		{
+
+		}
+
+		explicit LinearMap(size_t capacity) : LinearCoreMap<size_t, T>(capacity)
 		{
 
 		}
@@ -1358,13 +1385,6 @@ namespace LinearProbing
 		explicit LinearMap(size_t* keys, T* values, const size_t count) : LinearCoreMap<size_t, T>(keys, values, count)
 		{
 
-		}
-
-	private:
-
-		static size_t IntHash(const size_t& k)
-		{
-			return k;
 		}
 	};
 
