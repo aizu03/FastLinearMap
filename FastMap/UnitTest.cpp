@@ -114,6 +114,9 @@ static void TestBasic()
 	assert_always(v == 99887);
 	assert_always(map[1] == 99887);
 
+	std::tuple<size_t, int> tuple(556644, 2323323);
+	map.Emplace(std::move(tuple));
+
 	auto& yes_exist = map.Get(1);
 	auto& not_exist = map.Get(2);
 
@@ -712,7 +715,7 @@ static void Examples()
 
 	// Insert tuple
 	std::tuple<size_t, std::string> tuple(4444, "all fours");
-	map.Emplace(tuple);
+	map.Emplace(std::move(tuple));
 
 	// Get
 	std::string& zero = map[0];

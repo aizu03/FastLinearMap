@@ -597,8 +597,9 @@ namespace LinearProbing
 		template <typename Tuple>
 		void Emplace(Tuple&& tuple) requires (std::tuple_size_v<std::remove_cvref_t<Tuple>> == 2)
 		{
-			auto&& [key, value] = std::forward<Tuple>(tuple);
-			this->Emplace(std::forward<decltype(key)>(key), std::forward<decltype(value)>(value));
+			std::apply([this]<typename T0, typename T1>(T0&& key, T1&& value) {
+				this->Emplace(std::forward<T0>(key), std::forward<T1>(value));
+				}, std::forward<Tuple>(tuple));
 		}
 
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
