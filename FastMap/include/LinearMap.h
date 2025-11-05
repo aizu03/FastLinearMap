@@ -47,16 +47,16 @@ In short, LinearMap trades a bit more memory for substantially better
 real-world performance on modern hardware.
 
 All benchmarking was done on a modern mid-range CPU (Ryzen 7 3700x).
-With clang++20 and AVX2 optimizations enabled
+With clang++20 and AVX2 optimizations enabled, and inlining disabled
 
 ------------------------------------------------------------------------------
 
 --- Benchmark Results (1000000 elements) ---
 
 Operation       LinearMap(ms)   unordered_map(ms)       Speedup
-Emplace         43.8725         221.236         5.04269x
-Contains        35.175          164.799         4.68512x
-Get             34.1008         346.833         10.1708x
+Emplace         42.3977         253.53          5.97981x
+Contains        24.0756         159.539         6.62658x
+Get             22.4944         348.085         15.4743x
 
 ------------------------------------------------------------------------------
 */
@@ -203,7 +203,7 @@ namespace LinearProbing
 				auto x = n + 1; // fix for 0 keys
 				constexpr int hash_id = 3;
 
-				if (hash_id == 0) // Custom
+				if constexpr (hash_id == 0) // Custom
 				{
 					x ^= x >> 21;
 					x ^= x << 37;
@@ -211,14 +211,14 @@ namespace LinearProbing
 					x *= 0x165667919E3779F9ULL;
 					x ^= x >> 32;
 				}
-				else if (hash_id == 1)  // Splitmix64
+				else if constexpr (hash_id == 1)  // Splitmix64
 				{
 					x += 0x9e3779b97f4a7c15;
 					x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9;
 					x = (x ^ (x >> 27)) * 0x94d049bb133111eb;
 					x ^= (x >> 31);
 				}
-				else if (hash_id == 2) // Wyhash Final
+				else if constexpr (hash_id == 2) // Wyhash Final
 				{
 					x ^= x >> 32;
 					x *= 0xd6e8feb86659fd93;
@@ -226,7 +226,7 @@ namespace LinearProbing
 					x *= 0xd6e8feb86659fd93;
 					x ^= x >> 32;
 				}
-				else if (hash_id == 3) // Golden ratio
+				else if constexpr (hash_id == 3) // Golden ratio
 				{
 					constexpr size_t golden_ratio = 11400714819323198485ULL;
 					return (x * golden_ratio) & (data_size - 1);
@@ -242,7 +242,7 @@ namespace LinearProbing
 				return next;
 			}
 
-			virtual void Init(size_t capacity)
+			virtual void Init(size_t capacity, bool overwrite_hash)
 			{
 				throw std::runtime_error("not implemented");
 			}
@@ -289,6 +289,12 @@ namespace LinearProbing
 
 	public:
 
+#ifndef NDEBUG
+#define LM_ASSERT_INTEGRITY() DbgIntegrityCheck()
+#else
+#define LM_ASSERT_INTEGRITY()
+#endif
+
 		explicit LinearCoreMap(const size_t capacity)
 		{
 			LinearCoreMap::Init(capacity);
@@ -296,13 +302,13 @@ namespace LinearProbing
 
 		explicit LinearCoreMap(Internal::HashFunction<K> hash_func)
 		{
-			LinearCoreMap::Init();
+			LinearCoreMap::Init(64, true);
 			this->m_hash = hash_func;
 		}
 
 		explicit LinearCoreMap(const size_t capacity, Internal::HashFunction<K> hash_func)
 		{
-			LinearCoreMap::Init(capacity);
+			LinearCoreMap::Init(capacity, true);
 			this->m_hash = hash_func;
 		}
 
@@ -447,12 +453,6 @@ namespace LinearProbing
 #endif
 		}
 
-#ifndef NDEBUG
-#define LM_ASSERT_INTEGRITY() DbgIntegrityCheck()
-#else
-#define LM_ASSERT_INTEGRITY()
-#endif
-
 		V& operator[](const K& key)
 		{
 			return GetOrCreate(key, [this] {return m_default_value; });
@@ -481,7 +481,7 @@ namespace LinearProbing
 		/// <summary>
 		/// Clear all data from the map, while keeping the allocated memory.
 		/// </summary>
-		void Clear() override
+		void Clear() final
 		{
 			std::fill_n(m_used.get(), this->m_data_size, false);
 			std::fill_n(m_keys.get(), this->m_data_size, 0);
@@ -494,7 +494,7 @@ namespace LinearProbing
 		/// Don't use this before using 'EmplaceAll'. Because, it will ensure capacity internally.
 		/// </summary>
 		/// <param name="capacity">Desired map size</param>
-		void Reserve(const size_t capacity) override
+		void Reserve(const size_t capacity) final
 		{
 			auto size = this->FormatCapacity(capacity);
 			m_keys = std::make_unique<K[]>(size);
@@ -822,7 +822,7 @@ namespace LinearProbing
 
 	private:
 
-		void Init(const size_t capacity = 64) override
+		void Init(const size_t capacity = 64, const bool overwrite_hash = false) final
 		{
 			if constexpr (std::is_trivially_copyable_v<V>)
 			{
@@ -839,7 +839,14 @@ namespace LinearProbing
 
 			LM_ASSERT_INTEGRITY();
 			Reserve(capacity);
-			this->SetDefaultHash();
+
+			if (overwrite_hash)
+				return;
+
+			if constexpr (!std::is_integral_v<K>)
+			{
+				this->SetDefaultHash(); // non integers use std hash
+			}
 		}
 
 		void Resize(const size_t new_size) override
@@ -1011,13 +1018,13 @@ namespace LinearProbing
 
 		explicit LinearSet(Internal::HashFunction<K> hash_func)
 		{
-			LinearSet::Init();
+			LinearSet::Init(64, true);
 			this->m_hash = hash_func;
 		}
 
 		explicit LinearSet(const size_t capacity, Internal::HashFunction<K> hash_func)
 		{
-			LinearSet::Init(capacity);
+			LinearSet::Init(capacity, true);
 			this->m_hash = hash_func;
 		}
 
@@ -1106,7 +1113,7 @@ namespace LinearProbing
 		/// <summary>
 		/// Clear all data from the map, while keeping the allocated memory.
 		/// </summary>
-		void Clear() override
+		void Clear() final
 		{
 			std::fill_n(m_used.get(), this->m_data_size, false);
 			std::fill_n(m_keys.get(), this->m_data_size, 0);
@@ -1119,7 +1126,7 @@ namespace LinearProbing
 		/// Don't use this before using 'EmplaceAll'. Because, it will ensure capacity internally.
 		/// </summary>
 		/// <param name="capacity">Desired map size</param>
-		void Reserve(const size_t capacity) override
+		void Reserve(const size_t capacity) final
 		{
 			auto new_size = this->FormatCapacity(capacity);
 			m_keys = std::make_unique<K[]>(new_size);
@@ -1332,10 +1339,17 @@ namespace LinearProbing
 
 	private:
 
-		void Init(const size_t capacity = 64) override
+		void Init(const size_t capacity = 64, const bool overwrite_hash = false) final
 		{
 			Reserve(capacity);
-			this->SetDefaultHash();
+
+			if (overwrite_hash)
+				return;
+
+			if constexpr (!std::is_integral_v<K>)
+			{
+				this->SetDefaultHash(); // non integers use std hash
+			}
 		}
 
 		void Resize(const size_t new_size) override
