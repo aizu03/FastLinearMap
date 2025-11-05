@@ -91,11 +91,17 @@ Get             34.1008         346.833         10.1708x
 
 namespace LinearProbing
 {
-	template<class T>
-	using HashFunction = size_t(*)(const T& key);
-
 	namespace Internal
 	{
+		template<class T>
+		using HashFunction = size_t(*)(const T& key);
+
+		template <typename T, typename = void>
+		struct HasEqual : std::false_type {};
+
+		template <typename T>
+		struct HasEqual<T, std::void_t<decltype(std::declval<T>() == std::declval<T>())>> : std::true_type {};
+
 		template <class T>
 		class LinearHash
 		{
@@ -163,7 +169,7 @@ namespace LinearProbing
 					};
 			}
 
-			[[nodiscard]] size_t Hash(const T& key) const noexcept
+			[[nodiscard]] size_t InvokeHash(const T& key) const noexcept
 			{
 				if constexpr (std::is_integral_v<T>)
 				{
@@ -180,7 +186,7 @@ namespace LinearProbing
 				if (!m_hash)
 					UNREACHABLE();
 
-				const size_t hash = HashImpl(Hash(key), data_size);
+				const size_t hash = HashImpl(InvokeHash(key), data_size);
 				const auto size = data_size;
 
 #if defined(OPTIMIZED)
@@ -278,7 +284,8 @@ namespace LinearProbing
 	private:
 
 		K m_default_key{}; // never modify this
-		V m_default_value{}; // never modify this
+		V m_default_value; // never modify this
+		V m_default_value_ref; // never modify this
 
 	public:
 
@@ -287,13 +294,13 @@ namespace LinearProbing
 			LinearCoreMap::Init(capacity);
 		}
 
-		explicit LinearCoreMap(HashFunction<K> hash_func)
+		explicit LinearCoreMap(Internal::HashFunction<K> hash_func)
 		{
 			LinearCoreMap::Init();
 			this->m_hash = hash_func;
 		}
 
-		explicit LinearCoreMap(const size_t capacity, HashFunction<K> hash_func)
+		explicit LinearCoreMap(const size_t capacity, Internal::HashFunction<K> hash_func)
 		{
 			LinearCoreMap::Init(capacity);
 			this->m_hash = hash_func;
@@ -405,6 +412,47 @@ namespace LinearProbing
 			return *this;
 		}
 
+		void DbgIntegrityCheck() const
+		{
+			/*
+			 * Check if m_default_value has been modified at some point.
+			 */
+
+#ifndef NDEBUG
+			bool ok;
+			if constexpr (Internal::HasEqual<V>::value)
+			{
+				ok = (m_default_value == m_default_value_ref);
+			}
+			else if constexpr (std::is_trivially_copyable_v<V> && sizeof(V) > 0)
+			{
+				ok = (std::memcmp(&m_default_value, &m_default_value_ref, sizeof(V)) == 0);
+			}
+			else
+			{
+				ok = true;
+			}
+
+			if (!ok)
+			{
+				std::fprintf(stderr, "LinearMap integrity check failed: m_default_value modified!\n");
+#if defined(_MSC_VER)
+				__debugbreak();
+#elif defined(__GNUC__)
+				__builtin_trap();
+#else
+				std::abort();
+#endif
+			}
+#endif
+		}
+
+#ifndef NDEBUG
+#define LM_ASSERT_INTEGRITY() DbgIntegrityCheck()
+#else
+#define LM_ASSERT_INTEGRITY()
+#endif
+
 		V& operator[](const K& key)
 		{
 			return GetOrCreate(key, [this] {return m_default_value; });
@@ -415,12 +463,6 @@ namespace LinearProbing
 			return Get(key);
 		}
 
-		template <typename T, typename = void>
-		struct HasEqual : std::false_type {};
-
-		template <typename T>
-		struct HasEqual<T, std::void_t<decltype(std::declval<T>() == std::declval<T>())>> : std::true_type {};
-
 		/// <summary>
 		/// Checks if a value differs from the map's default.
 		/// Works for both comparable and trivially copyable types.
@@ -428,20 +470,12 @@ namespace LinearProbing
 		/// </summary>
 		/// <param name="value"></param>
 		/// <returns>True, if "value" differs from the default of V</returns>
-		[[nodiscard]] bool HasValue(const V& value) const noexcept
+		[[nodiscard]] bool IsValid(const V& value) const noexcept
 		{
-			if constexpr (HasEqual<V>::value)
-			{
-				return !(m_default_value == value);
-			}
-			else if constexpr (std::is_trivially_copyable_v<V> && sizeof(V) > 0)
-			{
-				return std::memcmp(&m_default_value, &value, sizeof(V)) != 0;
-			}
-			else
-			{
-				return true; // fallback, cannot reliably compare
-			}
+			LM_ASSERT_INTEGRITY();
+			auto origin = &m_default_value;
+			auto sample = &value;
+			return origin != sample;
 		}
 
 		/// <summary>
@@ -560,10 +594,17 @@ namespace LinearProbing
 			}
 		}
 
+		template <typename Tuple>
+		void Emplace(Tuple&& tuple) requires (std::tuple_size_v<std::remove_cvref_t<Tuple>> == 2)
+		{
+			auto&& [key, value] = std::forward<Tuple>(tuple);
+			this->Emplace(std::forward<decltype(key)>(key), std::forward<decltype(value)>(value));
+		}
+
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
 			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, K>&&
 		std::convertible_to<std::ranges::range_reference_t<ValueRange>, V>
-		void EmplaceAll(KeyRange& keys, ValueRange& values)
+			void EmplaceAll(KeyRange& keys, ValueRange& values)
 		{
 			auto key_it = std::begin(keys);
 			auto key_end = std::end(keys);
@@ -783,6 +824,20 @@ namespace LinearProbing
 
 		void Init(const size_t capacity = 64) override
 		{
+			if constexpr (std::is_trivially_copyable_v<V>)
+			{
+				// make both defaults to guarantee equality
+				// if structs/classes don't set the fields, they will be random
+				std::memset(&m_default_value, 0, sizeof(V));
+				std::memset(&m_default_value_ref, 0, sizeof(V));
+			}
+			else
+			{
+				m_default_value = V{};
+				m_default_value_ref = V{};
+			}
+
+			LM_ASSERT_INTEGRITY();
 			Reserve(capacity);
 			this->SetDefaultHash();
 		}
@@ -878,6 +933,7 @@ namespace LinearProbing
 		template <typename A, typename B>
 		void Insert(A&& key, B&& new_value, size_t i)
 		{
+			LM_ASSERT_INTEGRITY();
 			m_used[i] = true;
 			m_keys[i] = std::forward<A>(key);
 			m_values[i] = std::forward<B>(new_value);
@@ -891,6 +947,7 @@ namespace LinearProbing
 		template <typename A, typename B>
 		void InsertAndGrow(A&& key, B&& new_value, size_t i)
 		{
+			LM_ASSERT_INTEGRITY();
 			m_used[i] = true;
 			m_keys[i] = std::forward<A>(key);
 			m_values[i] = std::forward<B>(new_value);
@@ -901,6 +958,7 @@ namespace LinearProbing
 		template <typename A, typename B>
 		void InsertNoGrow(A&& key, B&& new_value, size_t i)
 		{
+			LM_ASSERT_INTEGRITY();
 			m_used[i] = true;
 			m_keys[i] = std::forward<A>(key);
 			m_values[i] = std::forward<B>(new_value);
@@ -951,13 +1009,13 @@ namespace LinearProbing
 			LinearSet::Init(capacity);
 		}
 
-		explicit LinearSet(HashFunction<K> hash_func)
+		explicit LinearSet(Internal::HashFunction<K> hash_func)
 		{
 			LinearSet::Init();
 			this->m_hash = hash_func;
 		}
 
-		explicit LinearSet(const size_t capacity, HashFunction<K> hash_func)
+		explicit LinearSet(const size_t capacity, Internal::HashFunction<K> hash_func)
 		{
 			LinearSet::Init(capacity);
 			this->m_hash = hash_func;
@@ -1387,5 +1445,4 @@ namespace LinearProbing
 
 		}
 	};
-
 }

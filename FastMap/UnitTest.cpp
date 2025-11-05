@@ -114,6 +114,14 @@ static void TestBasic()
 	assert_always(v == 99887);
 	assert_always(map[1] == 99887);
 
+	auto& yes_exist = map.Get(1);
+	auto& not_exist = map.Get(2);
+
+	// not_exist = 666; // BAD!!
+
+	assert_always(map.IsValid(yes_exist));
+	assert_always(!map.IsValid(not_exist));
+
 	map.Erase(1);
 
 	map.TryEmplace(1, [] { return 123; });
@@ -309,7 +317,7 @@ static void TestStructMap2()
 				Coordinates& pos = map.Get(key);
 
 				if (x > 0)
-					assert_always(map.HasValue(pos));
+					assert_always(map.IsValid(pos));
 
 				assert_always((int)pos.x == x);
 				assert_always((int)pos.y == y);
@@ -696,26 +704,37 @@ static void Examples()
 {
 	LinearMap<std::string> map;
 
-	// Basic usage
-	map.Emplace(1, "one");
+	// Insert
+	map.Emplace(0, "zero");
+	map[1] = "one";
 	map[2] = "two";
 	map[123] = "123";
-	map[444] = "444";
 
-	std::string& val = map.Get(1); // val == "one"
+	// Insert tuple
+	std::tuple<size_t, std::string> tuple(4444, "all fours");
+	map.Emplace(tuple);
 
-	assert(map.HasValue(val));
-	assert(!map.HasValue(map.Get(999)));
+	// Get
+	std::string& zero = map[0];
+	std::string& two = map[2];
 
-	val = "uno"; // modify value
+	// Get and modify
+	std::string& one = map.Get(1);
+	if (map.IsValid(one)) // always check, key could not exist -> modifying default reference breaks the map
+		one = "uno";
+
+	// Check if key exist
+	assert(map.Contains(0));
+	assert(map.Contains(1));
+	assert(map.Contains(2));
+	assert(!map.Contains(3));
+	assert(!map.Contains(4));
 
 	// Emplace a new value, if key does not exist
 	map.GetOrCreate(3, []
 		{
 			return "three";
 		});
-
-	assert(map.Contains(3));
 
 	// Move an existing value, if key does not exist
 	std::string str("four");
@@ -724,6 +743,13 @@ static void Examples()
 	// Erase a key
 	map.Erase(2);
 	assert(!map.Contains(2));
+
+	// Get and check if the return value has valid contents
+	const std::string& invalid = map.Get(999);
+	if (map.IsValid(invalid))
+	{
+		// process further ...
+	}
 
 	// Emplace multiple keys and values from arrays
 	std::vector<size_t> keys = { 10, 20, 30 };
@@ -738,16 +764,45 @@ static void Examples()
 
 	map.EmplaceAll(tuples);
 
-	// Try out keys
-	auto result1 = map.TryEmplace(3, "New Value"); // won't work, returns false
-	auto result2 = map.TryEmplace(12, "New Value"); // works, returns true
+	// Try inserting. Useful for filtering
+	const auto result1 = map.TryEmplace(3, "New Value"); // won't work, returns false
+	const auto result2 = map.TryEmplace(12, "New Value"); // works, returns true
 
+	assert(!result1);
+	assert(result2);
+
+	// Try inserting with a function/lambda
 	map.TryEmplace(61, []
 		{
-			return "New Value";
+			return "lazy load string";
 		});
 
-	// Adjust capacity, and keep existing data
+	// Filter out duplicates
+	std::vector<std::string> many_strings;
+	many_strings.emplace_back("The dog ate the meat");
+	many_strings.emplace_back("The dog ate the meat");
+	many_strings.emplace_back("Her name is Lucy");
+	many_strings.emplace_back("She likes playing on the field");
+	many_strings.emplace_back("She only appears once");
+	many_strings.emplace_back("She only appears once");
+	many_strings.emplace_back("There you go! :)");
+
+	LinearSet<std::string> filtered_strings;
+
+	for (auto& string : many_strings)
+	{
+		if (!filtered_strings.TryEmplace(string))
+			continue;
+
+		// process further
+		std::cout << "String " << string << " was inserted!\n";
+	}
+
+	for (auto& string : filtered_strings)
+		std::cout << "Unique: " << string << "\n";
+
+
+	// Adjust map capacity manually, while keeping existing data
 	map.Rehash(16); // shrink
 	map.Rehash(512); // grow
 
@@ -759,6 +814,8 @@ static void Examples()
 
 	// Clear the map
 	map.Reserve(16); // delete all existing elements, pre-allocate space for 16 elements
+
+	map.Emplace(1, "Hi!");
 	map.Clear(); // keeps allocated memory for reuse
 
 
