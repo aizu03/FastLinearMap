@@ -11,6 +11,8 @@
 #include <string>
 #include <unordered_set>
 
+#include "examples.h"
+
 #if defined(__clang__)
 #   define NO_OPTIMIZE_BEGIN  __attribute__((optnone))
 #   define NO_OPTIMIZE_END
@@ -661,11 +663,6 @@ static void RunAllTests()
 	std::cout << "All tests passed successfully!\n";
 }
 
-static size_t Hasher(const double& key)
-{
-	return std::hash<double>{}(key);
-}
-
 static void HashTest()
 {
 	DebugMap<int> dbg;
@@ -703,137 +700,10 @@ static void HashTest()
 	}
 }
 
-static void Examples()
-{
-	LinearMap<std::string> map;
-
-	// Insert
-	map.Emplace(0, "zero");
-	map[1] = "one";
-	map[2] = "two";
-	map[123] = "123";
-
-	// Insert tuple
-	std::tuple<size_t, std::string> tuple(4444, "all fours");
-	map.Emplace(std::move(tuple));
-
-	// Get
-	std::string& zero = map[0];
-	std::string& two = map[2];
-
-	// Get and modify
-	std::string& one = map.Get(1);
-	if (map.IsValid(one)) // always check, key could not exist -> modifying default reference breaks the map
-		one = "uno";
-
-	// Check if key exist
-	assert(map.Contains(0));
-	assert(map.Contains(1));
-	assert(map.Contains(2));
-	assert(!map.Contains(3));
-	assert(!map.Contains(4));
-
-	// Emplace a new value, if key does not exist
-	map.GetOrCreate(3, []
-		{
-			return "three";
-		});
-
-	// Move an existing value, if key does not exist
-	std::string str("four");
-	map.GetOrCreate(4, std::move(str));
-
-	// Erase a key
-	map.Erase(2);
-	assert(!map.Contains(2));
-
-	// Get and check if the return value has valid contents
-	const std::string& invalid = map.Get(999);
-	if (map.IsValid(invalid))
-	{
-		// process further ...
-	}
-
-	// Emplace multiple keys and values from arrays
-	std::vector<size_t> keys = { 10, 20, 30 };
-	std::vector<std::string> values = { "ten", "twenty", "thirty" };
-
-	map.EmplaceAll(keys, values);
-
-	// Emplace multiple key-value pairs
-	std::vector<std::tuple<size_t, std::string>> tuples;
-	tuples.emplace_back(50, "hello");
-	tuples.emplace_back(52, "world");
-
-	map.EmplaceAll(tuples);
-
-	// Try inserting. Useful for filtering
-	const auto result1 = map.TryEmplace(3, "New Value"); // won't work, returns false
-	const auto result2 = map.TryEmplace(12, "New Value"); // works, returns true
-
-	assert(!result1);
-	assert(result2);
-
-	// Try inserting with a function/lambda
-	map.TryEmplace(61, []
-		{
-			return "lazy load string";
-		});
-
-	// Filter out duplicates
-	std::vector<std::string> many_strings;
-	many_strings.emplace_back("The dog ate the meat");
-	many_strings.emplace_back("The dog ate the meat");
-	many_strings.emplace_back("Her name is Lucy");
-	many_strings.emplace_back("She likes playing on the field");
-	many_strings.emplace_back("She only appears once");
-	many_strings.emplace_back("She only appears once");
-	many_strings.emplace_back("There you go! :)");
-
-	LinearSet<std::string> filtered_strings;
-
-	for (auto& string : many_strings)
-	{
-		if (!filtered_strings.TryEmplace(string))
-			continue;
-
-		// process further
-		std::cout << "String " << string << " was inserted!\n";
-	}
-
-	for (auto& string : filtered_strings)
-		std::cout << "Unique: " << string << "\n";
-
-
-	// Adjust map capacity manually, while keeping existing data
-	map.Rehash(16); // shrink
-	map.Rehash(512); // grow
-
-	// Iterate over all key-value pairs (will not be in insertion order)
-	for (auto [key, value] : map)
-	{
-		std::cout << "Key: " << key << ", Value: " << value << "\n";
-	}
-
-	// Clear the map
-	map.Reserve(16); // delete all existing elements, pre-allocate space for 16 elements
-
-	map.Emplace(1, "Hi!");
-	map.Clear(); // keeps allocated memory for reuse
-
-
-	// Recommended order:
-	// ---------------------------------
-	// Contains -> Checks if key exists
-	// TryEmplace -> Checks if key exists, inserts new value if not
-	// GetOrCreate -> Checks if key exists, inserts new value if not, returns inserted/existing value
-	// ---------------------------------
-}
-
 NO_OPTIMIZE_BEGIN
 int main()
 {
-	Examples();
+	MapExamples::RunExamples();
 	RunAllTests();
 
 #if NDEBUG

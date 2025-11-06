@@ -88,7 +88,6 @@ Get             22.4944         348.085         15.4743x
 #define unlikely(x) (x)
 #endif
 
-
 namespace LinearProbing
 {
 	namespace Internal
@@ -179,7 +178,7 @@ namespace LinearProbing
 
 			[[nodiscard]] size_t InvokeHash(const T& key) const noexcept
 			{
-				if constexpr (std::is_integral_v<T>)
+				if constexpr (std::is_arithmetic_v<T>)
 				{
 					return static_cast<size_t>(key);
 				}
@@ -472,12 +471,11 @@ namespace LinearProbing
 		}
 
 		/// <summary>
-		/// Checks if a value differs from the map's default.
+		/// Checks if a reference (V&) differs from the map's default.
 		/// Works for both comparable and trivially copyable types.
-		/// Returns true if uncertain.
 		/// </summary>
 		/// <param name="value"></param>
-		/// <returns>True, if "value" differs from the default of V</returns>
+		/// <returns>True, V& value is not the map default</returns>
 		[[nodiscard]] bool IsValid(const V& value) const noexcept
 		{
 			LM_ASSERT_INTEGRITY();
@@ -852,7 +850,7 @@ namespace LinearProbing
 			if (overwrite_hash)
 				return;
 
-			if constexpr (!std::is_integral_v<K>)
+			if constexpr (!std::is_arithmetic_v<K>)
 			{
 				this->SetDefaultHash(); // non integers use std hash
 			}
@@ -1357,7 +1355,7 @@ namespace LinearProbing
 			if (overwrite_hash)
 				return;
 
-			if constexpr (!std::is_integral_v<K>)
+			if constexpr (!std::is_arithmetic_v<K>)
 			{
 				this->SetDefaultHash(); // non integers use std hash
 			}
@@ -1443,7 +1441,17 @@ namespace LinearProbing
 
 		explicit LinearCoreMap(size_t capacity) : Internal::LinearCoreMapImpl<K, V>(capacity)
 		{
+			
+		}
 
+		explicit LinearCoreMap(Internal::HashFunction<K> hash_func) : Internal::LinearCoreMapImpl<K, V>(hash_func)
+		{
+
+		}
+
+		explicit LinearCoreMap(size_t capacity, Internal::HashFunction<K> hash_func) : Internal::LinearCoreMapImpl<K, V>(capacity, hash_func)
+		{
+			
 		}
 
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
