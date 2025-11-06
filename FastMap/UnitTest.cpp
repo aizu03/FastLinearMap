@@ -52,7 +52,7 @@ using namespace LinearProbing;
 #if defined(LMAP_DEV)
 
 template <class T>
-class DebugMap : public LinearCoreMap<size_t, T>
+class DebugMap : public Internal::LinearCoreMapImpl<size_t, T>
 {
 
 public:

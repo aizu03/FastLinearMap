@@ -102,6 +102,14 @@ namespace LinearProbing
 		template <typename T>
 		struct HasEqual<T, std::void_t<decltype(std::declval<T>() == std::declval<T>())>> : std::true_type {};
 
+		template<typename T>
+		constexpr bool is_safe_compare_v =
+			std::is_trivially_copyable_v<T> ||
+			std::is_arithmetic_v<T> ||
+			std::is_enum_v<T> ||
+			std::is_pointer_v<T> ||
+			std::is_null_pointer_v<T>;
+
 		template <class T>
 		class LinearHash
 		{
@@ -264,22 +272,22 @@ namespace LinearProbing
 				Resize(new_size);
 			}
 		};
-	}
+
 
 	template <class K, class V>
-	class LinearCoreMap : public Internal::LinearHash<K> // linear probing hash map
+	class LinearCoreMapImpl : public LinearHash<K> // linear probing hash map
 	{
 	protected:
 
-		// TODO: Test out future optimization by adding 8 empty entries for vectorization and masking
+		// TODO: Test out future optimization AVX. New memory layout
 
 		std::unique_ptr<K[]> m_keys;
 		std::unique_ptr<V[]>  m_values;
-		std::unique_ptr<bool[]>   m_used;
+		std::unique_ptr<uint8_t[]>   m_used;
 
 		std::unique_ptr<K[]> m_keys_new;
 		std::unique_ptr<V[]>  m_values_new;
-		std::unique_ptr<bool[]>   m_used_new;
+		std::unique_ptr<uint8_t[]>   m_used_new;
 
 	private:
 
@@ -295,34 +303,34 @@ namespace LinearProbing
 #define LM_ASSERT_INTEGRITY()
 #endif
 
-		explicit LinearCoreMap(const size_t capacity)
+		explicit LinearCoreMapImpl(const size_t capacity)
 		{
-			LinearCoreMap::Init(capacity);
+			LinearCoreMapImpl::Init(capacity);
 		}
 
-		explicit LinearCoreMap(Internal::HashFunction<K> hash_func)
+		explicit LinearCoreMapImpl(HashFunction<K> hash_func)
 		{
-			LinearCoreMap::Init(64, true);
+			LinearCoreMapImpl::Init(64, true);
 			this->m_hash = hash_func;
 		}
 
-		explicit LinearCoreMap(const size_t capacity, Internal::HashFunction<K> hash_func)
+		explicit LinearCoreMapImpl(const size_t capacity, HashFunction<K> hash_func)
 		{
-			LinearCoreMap::Init(capacity, true);
+			LinearCoreMapImpl::Init(capacity, true);
 			this->m_hash = hash_func;
 		}
 
-		explicit LinearCoreMap()
+		explicit LinearCoreMapImpl()
 		{
-			LinearCoreMap::Init();
+			LinearCoreMapImpl::Init();
 		}
 
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
 			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, K>&&
 		std::convertible_to<std::ranges::range_reference_t<ValueRange>, V>
-			explicit LinearCoreMap(KeyRange& keys, ValueRange& values)
+			explicit LinearCoreMapImpl(KeyRange& keys, ValueRange& values)
 		{
-			LinearCoreMap::Init();
+			LinearCoreMapImpl::Init();
 			EmplaceAll(keys, values);
 		}
 
@@ -331,24 +339,24 @@ namespace LinearProbing
 				{ std::get<0>(p) } -> std::convertible_to<K>;
 				{ std::get<1>(p) } -> std::convertible_to<V>;
 		}
-		explicit LinearCoreMap(PairRange& pairs)
+		explicit LinearCoreMapImpl(PairRange& pairs)
 		{
-			LinearCoreMap::Init();
+			LinearCoreMapImpl::Init();
 			EmplaceAll(pairs);
 		}
 
-		explicit LinearCoreMap(K* keys, V* values, const size_t count)
+		explicit LinearCoreMapImpl(K* keys, V* values, const size_t count)
 		{
-			LinearCoreMap::Init();
+			LinearCoreMapImpl::Init();
 			EmplaceAll(keys, values, count);
 		}
 
-		~LinearCoreMap() override = default;
+		~LinearCoreMapImpl() override = default;
 
-		LinearCoreMap(const LinearCoreMap& other) // Copy constructor (deep copy)
+		LinearCoreMapImpl(const LinearCoreMapImpl& other) // Copy constructor (deep copy)
 			: m_keys(std::make_unique<K[]>(other.m_data_size)),
 			m_values(std::make_unique<V[]>(other.m_data_size)),
-			m_used(std::make_unique<bool[]>(other.m_data_size))
+			m_used(std::make_unique<uint8_t[]>(other.m_data_size))
 		{
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
@@ -359,7 +367,7 @@ namespace LinearProbing
 			std::copy_n(other.m_used.get(), other.m_data_size, m_used.get());
 		}
 
-		LinearCoreMap& operator=(const LinearCoreMap& other) // Copy assignment (deep copy)
+		LinearCoreMapImpl& operator=(const LinearCoreMapImpl& other) // Copy assignment (deep copy)
 		{
 			if (this == &other)
 				return *this;
@@ -370,7 +378,7 @@ namespace LinearProbing
 
 			m_keys = std::make_unique<K[]>(other.m_data_size);
 			m_values = std::make_unique<V[]>(other.m_data_size);
-			m_used = std::make_unique<bool[]>(other.m_data_size);
+			m_used = std::make_unique<uint8_t[]>(other.m_data_size);
 
 			std::copy_n(other.m_keys.get(), other.m_data_size, m_keys.get());
 			std::copy_n(other.m_values.get(), other.m_data_size, m_values.get());
@@ -379,7 +387,7 @@ namespace LinearProbing
 			return *this;
 		}
 
-		LinearCoreMap(LinearCoreMap&& other) noexcept // Move constructor
+		LinearCoreMapImpl(LinearCoreMapImpl&& other) noexcept // Move constructor
 			: m_keys(std::move(other.m_keys)),
 			m_values(std::move(other.m_values)),
 			m_used(std::move(other.m_used)),
@@ -395,7 +403,7 @@ namespace LinearProbing
 			other.m_data_size = 0;
 		}
 
-		LinearCoreMap& operator=(LinearCoreMap&& other) noexcept // Move assignment
+		LinearCoreMapImpl& operator=(LinearCoreMapImpl&& other) noexcept // Move assignment
 		{
 			if (this == &other)
 				return *this;
@@ -430,9 +438,9 @@ namespace LinearProbing
 			{
 				ok = (m_default_value == m_default_value_ref);
 			}
-			else if constexpr (std::is_trivially_copyable_v<V> && sizeof(V) > 0)
+			else if constexpr (Internal::is_safe_compare_v<V> && sizeof(V) > 0)
 			{
-				ok = (std::memcmp(&m_default_value, &m_default_value_ref, sizeof(V)) == 0);
+				ok = std::memcmp(&m_default_value, &m_default_value_ref, sizeof(V)) == 0;
 			}
 			else
 			{
@@ -499,7 +507,7 @@ namespace LinearProbing
 			auto size = this->FormatCapacity(capacity);
 			m_keys = std::make_unique<K[]>(size);
 			m_values = std::make_unique<V[]>(size);
-			m_used = std::make_unique<bool[]>(size);
+			m_used = std::make_unique<uint8_t[]>(size);
 			this->m_count = 0;
 			this->m_data_size = size;
 		}
@@ -597,9 +605,9 @@ namespace LinearProbing
 		template <typename Tuple>
 		void Emplace(Tuple&& tuple) requires (std::tuple_size_v<std::remove_cvref_t<Tuple>> == 2)
 		{
-			std::apply([this]<typename T0, typename T1>(T0&& key, T1&& value) {
+			std::apply([this]<typename T0, typename T1>(T0 && key, T1 && value) {
 				this->Emplace(std::forward<T0>(key), std::forward<T1>(value));
-				}, std::forward<Tuple>(tuple));
+			}, std::forward<Tuple>(tuple));
 		}
 
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
@@ -715,7 +723,7 @@ namespace LinearProbing
 				// [0,0,0,0,5,6,7,8,9,0]
 				// [0,0,0,0,E,F,G,H,I,J]
 
-				m_used[start] = false;
+				m_used[start] = 0;
 				m_keys[start] = m_default_key;
 				m_values[start] = m_default_value;
 				--this->m_count;
@@ -756,7 +764,7 @@ namespace LinearProbing
 			// [0,0,0,E,F,0,G,H,I,J]
 
 			const auto last_entry = (start + keys_above) & last_index;
-			m_used[last_entry] = false;
+			m_used[last_entry] = 0;
 			m_keys[last_entry] = m_default_key;
 			m_values[last_entry] = m_default_value;
 
@@ -783,7 +791,7 @@ namespace LinearProbing
 			using iterator_category = std::forward_iterator_tag;
 			using difference_type = std::ptrdiff_t;
 
-			Iterator(K* keys, V* values, bool* used, const size_t index, const size_t size)
+			Iterator(K* keys, V* values, uint8_t* used, const size_t index, const size_t size)
 				: m_keys(keys), m_values(values), m_used(used), m_index(index), m_size(size) {
 				advance();
 			}
@@ -808,7 +816,7 @@ namespace LinearProbing
 
 			K* m_keys;
 			V* m_values;
-			bool* m_used;
+			uint8_t* m_used;
 			size_t m_index;
 			size_t m_size;
 		};
@@ -854,7 +862,7 @@ namespace LinearProbing
 		{
 			m_keys_new = std::make_unique<K[]>(new_size);
 			m_values_new = std::make_unique<V[]>(new_size);
-			m_used_new = std::make_unique<bool[]>(new_size);
+			m_used_new = std::make_unique<uint8_t[]>(new_size);
 
 			for (size_t i = 0; i < this->m_data_size; ++i)
 			{
@@ -942,7 +950,7 @@ namespace LinearProbing
 		void Insert(A&& key, B&& new_value, size_t i)
 		{
 			LM_ASSERT_INTEGRITY();
-			m_used[i] = true;
+			m_used[i] = 1;
 			m_keys[i] = std::forward<A>(key);
 			m_values[i] = std::forward<B>(new_value);
 			++this->m_count;
@@ -956,7 +964,7 @@ namespace LinearProbing
 		void InsertAndGrow(A&& key, B&& new_value, size_t i)
 		{
 			LM_ASSERT_INTEGRITY();
-			m_used[i] = true;
+			m_used[i] = 1;
 			m_keys[i] = std::forward<A>(key);
 			m_values[i] = std::forward<B>(new_value);
 			++this->m_count;
@@ -967,7 +975,7 @@ namespace LinearProbing
 		void InsertNoGrow(A&& key, B&& new_value, size_t i)
 		{
 			LM_ASSERT_INTEGRITY();
-			m_used[i] = true;
+			m_used[i] = 1;
 			m_keys[i] = std::forward<A>(key);
 			m_values[i] = std::forward<B>(new_value);
 			++this->m_count;
@@ -981,7 +989,7 @@ namespace LinearProbing
 			{
 				if (!m_used_new[i])
 				{
-					m_used_new[i] = true;
+					m_used_new[i] = 1;
 					m_keys_new[i] = std::forward<A>(key);
 					m_values_new[i] = std::forward<B>(value);
 					return;
@@ -996,15 +1004,17 @@ namespace LinearProbing
 		}
 	};
 
+	}
+
 	template <class K>
 	class LinearSet : public Internal::LinearHash<K> // linear probing hash set
 	{
 	protected:
 
 		std::unique_ptr<K[]> m_keys;
-		std::unique_ptr<bool[]>   m_used;
+		std::unique_ptr<uint8_t[]>   m_used;
 		std::unique_ptr<K[]> m_keys_new;
-		std::unique_ptr<bool[]>   m_used_new;
+		std::unique_ptr<uint8_t[]>   m_used_new;
 
 	private:
 
@@ -1052,7 +1062,7 @@ namespace LinearProbing
 
 		LinearSet(const LinearSet& other) // Copy constructor (deep copy)
 			: m_keys(std::make_unique<K[]>(other.m_data_size)),
-			m_used(std::make_unique<bool[]>(other.m_data_size))
+			m_used(std::make_unique<uint8_t[]>(other.m_data_size))
 		{
 			this->m_count = other.m_count;
 			this->m_data_size = other.m_data_size;
@@ -1072,7 +1082,7 @@ namespace LinearProbing
 			this->m_hash = other.m_hash;
 
 			m_keys = std::make_unique<K[]>(other.m_data_size);
-			m_used = std::make_unique<bool[]>(other.m_data_size);
+			m_used = std::make_unique<uint8_t[]>(other.m_data_size);
 
 			std::copy_n(other.m_keys.get(), other.m_data_size, m_keys.get());
 			std::copy_n(other.m_used.get(), other.m_data_size, m_used.get());
@@ -1131,7 +1141,7 @@ namespace LinearProbing
 		{
 			auto new_size = this->FormatCapacity(capacity);
 			m_keys = std::make_unique<K[]>(new_size);
-			m_used = std::make_unique<bool[]>(new_size);
+			m_used = std::make_unique<uint8_t[]>(new_size);
 			this->m_count = 0;
 			this->m_data_size = new_size;
 		}
@@ -1249,7 +1259,7 @@ namespace LinearProbing
 				// [0,0,0,0,5,6,7,8,9,0]
 				// [0,0,0,0,E,F,G,H,I,J]
 
-				m_used[start] = false;
+				m_used[start] = 0;
 				m_keys[start] = m_default_key;
 
 				--this->m_count;
@@ -1287,7 +1297,7 @@ namespace LinearProbing
 			// [0,0,0,E,F,0,G,H,I,J]
 
 			const auto last_entry = (start + keys_above) & last_index;
-			m_used[last_entry] = false;
+			m_used[last_entry] = 0;
 			m_keys[last_entry] = m_default_key;
 
 			--this->m_count;
@@ -1296,7 +1306,7 @@ namespace LinearProbing
 
 		class Iterator {
 		public:
-			Iterator(K* keys, bool* used, const size_t index, const size_t size)
+			Iterator(K* keys, uint8_t* used, const size_t index, const size_t size)
 				: m_keys(keys), m_used(used), m_index(index), m_size(size)
 			{
 				advance();
@@ -1318,7 +1328,7 @@ namespace LinearProbing
 
 		private:
 			K* m_keys;
-			bool* m_used;
+			uint8_t* m_used;
 			size_t m_index;
 			size_t m_size;
 
@@ -1356,7 +1366,7 @@ namespace LinearProbing
 		void Resize(const size_t new_size) override
 		{
 			m_keys_new = std::make_unique<K[]>(new_size);
-			m_used_new = std::make_unique<bool[]>(new_size);
+			m_used_new = std::make_unique<uint8_t[]>(new_size);
 
 			for (size_t i = 0; i < this->m_data_size; ++i)
 			{
@@ -1389,7 +1399,7 @@ namespace LinearProbing
 		template <typename A>
 		void Insert(A&& key, size_t i)
 		{
-			m_used[i] = true;
+			m_used[i] = 1;
 			m_keys[i] = std::forward<A>(key);
 			++this->m_count;
 
@@ -1401,7 +1411,7 @@ namespace LinearProbing
 		template <typename A>
 		void InsertNoGrow(A&& key, size_t i)
 		{
-			m_used[i] = true;
+			m_used[i] = 1;
 			m_keys[i] = std::forward<A>(key);
 			++this->m_count;
 		}
@@ -1414,7 +1424,7 @@ namespace LinearProbing
 			{
 				if (!m_used_new[i])
 				{
-					m_used_new[i] = true;
+					m_used_new[i] = 1;
 					m_keys_new[i] = std::forward<A>(key);
 					return;
 				}
@@ -1422,17 +1432,55 @@ namespace LinearProbing
 		}
 	};
 
-	template <class T>
-	class LinearMap final : public LinearCoreMap<size_t, T>
+	template <class K, class V>
+	class LinearCoreMap final : public Internal::LinearCoreMapImpl<K, V> // linear probing hash map
 	{
 	public:
-
-		explicit LinearMap() : LinearCoreMap<size_t, T>()
+		explicit LinearCoreMap() : Internal::LinearCoreMapImpl<K,V>()
 		{
 
 		}
 
-		explicit LinearMap(size_t capacity) : LinearCoreMap<size_t, T>(capacity)
+		explicit LinearCoreMap(size_t capacity) : Internal::LinearCoreMapImpl<K, V>(capacity)
+		{
+
+		}
+
+		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
+			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, K>&&
+		std::convertible_to<std::ranges::range_reference_t<ValueRange>, V>
+			explicit LinearCoreMap(KeyRange& keys, ValueRange& values) : Internal::LinearCoreMapImpl<K, V>(keys, values)
+		{
+
+		}
+
+		template <std::ranges::input_range PairRange>
+			requires requires(const std::ranges::range_value_t<PairRange>& p) {
+				{ std::get<0>(p) } -> std::convertible_to<K>;
+				{ std::get<1>(p) } -> std::convertible_to<V>;
+		}
+		explicit LinearCoreMap(PairRange& pairs) : Internal::LinearCoreMapImpl<K, V>(pairs)
+		{
+
+		}
+
+		explicit LinearCoreMap(K* keys, V* values, const size_t count) : Internal::LinearCoreMapImpl<K, V>(keys, values, count)
+		{
+
+		}
+	};
+
+	template <class T>
+	class LinearMap final : public Internal::LinearCoreMapImpl<size_t, T>
+	{
+	public:
+
+		explicit LinearMap() : Internal::LinearCoreMapImpl<size_t, T>()
+		{
+
+		}
+
+		explicit LinearMap(size_t capacity) : Internal::LinearCoreMapImpl<size_t, T>(capacity)
 		{
 
 		}
@@ -1440,7 +1488,7 @@ namespace LinearProbing
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
 			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, size_t>&&
 		std::convertible_to<std::ranges::range_reference_t<ValueRange>, T>
-			explicit LinearMap(KeyRange& keys, ValueRange& values) : LinearCoreMap<size_t, T>(keys, values)
+			explicit LinearMap(KeyRange& keys, ValueRange& values) : Internal::LinearCoreMapImpl<size_t, T>(keys, values)
 		{
 
 		}
@@ -1450,12 +1498,12 @@ namespace LinearProbing
 				{ std::get<0>(p) } -> std::convertible_to<size_t>;
 				{ std::get<1>(p) } -> std::convertible_to<T>;
 		}
-		explicit LinearMap(PairRange& pairs) : LinearCoreMap<size_t, T>(pairs)
+		explicit LinearMap(PairRange& pairs) : Internal::LinearCoreMapImpl<size_t, T>(pairs)
 		{
 
 		}
 
-		explicit LinearMap(size_t* keys, T* values, const size_t count) : LinearCoreMap<size_t, T>(keys, values, count)
+		explicit LinearMap(size_t* keys, T* values, const size_t count) : Internal::LinearCoreMapImpl<size_t, T>(keys, values, count)
 		{
 
 		}
