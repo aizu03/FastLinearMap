@@ -23,10 +23,10 @@
     <None Include="ClassDiagram.cd" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\include\LinearMap.h">
+    <ClInclude Include="..\..\examples\examples.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\examples\examples.h">
+    <ClInclude Include="..\..\include\LinearMap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -140,7 +140,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\examples\examples.h" />
-    <ClInclude Include="..\include\LinearMap.h" />
+    <ClInclude Include="..\..\include\LinearMap.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
