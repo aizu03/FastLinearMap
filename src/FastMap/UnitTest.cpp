@@ -719,7 +719,7 @@ static void HashTest()
 NO_OPTIMIZE_BEGIN
 int main()
 {
-	//MapExamples::RunExamples();
+	MapExamples::RunExamples();
 	RunAllTests();
 
 #if NDEBUG

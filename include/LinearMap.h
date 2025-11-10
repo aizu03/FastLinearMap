@@ -783,58 +783,72 @@ namespace LinearProbing
 			return true;
 		}
 
+
 		class Iterator {
 		public:
-
-			struct ReferenceProxy {
-
-				const K& first;
-				V& second;
-				[[nodiscard]] const K& key() const { return first; }
-				[[nodiscard]] V& value() const { return second; }
-				explicit operator std::pair<const K&, V&>() const { return { first, second }; }
-			};
-
 			using value_type = std::pair<const K, V>;
-			using reference = ReferenceProxy;
+			using reference = std::pair<const K, V>&;
 			using iterator_category = std::forward_iterator_tag;
 			using difference_type = std::ptrdiff_t;
 
-			Iterator(K* keys, V* values, uint8_t* used, const size_t index, const size_t size)
-				: m_keys(keys), m_values(values), m_used(used), m_index(index), m_size(size) {
-				advance();
-			}
-
-			Iterator& operator++() {
-				++m_index;
-				advance();
-				return *this;
-			}
-
-			bool operator==(const Iterator& other) const { return m_index == other.m_index; }
-			bool operator!=(const Iterator& other) const { return !(*this == other); }
-
-			reference operator*() const {
-				return ReferenceProxy{ m_keys[m_index], m_values[m_index] };
-			}
+			value_type val;
 
 		private:
-			void advance() {
-				while (m_index < m_size && !m_used[m_index]) ++m_index;
-			}
-
 			K* m_keys;
 			V* m_values;
 			uint8_t* m_used;
 			size_t m_index;
 			size_t m_size;
+
+			void advance() noexcept
+			{
+				while (m_index < m_size && !m_used[m_index])
+					++m_index;
+			}
+
+		public:
+			Iterator(K* keys, V* values, uint8_t* used, size_t index, size_t size)
+				: m_keys(keys), m_values(values), m_used(used), m_index(index), m_size(size) 
+			{
+				advance();
+			}
+
+			struct Proxy {
+
+				const K& first;
+				V& second;
+
+				// TODO: Help. No idea how to make "auto&" and "auto" work.
+
+				operator reference() const noexcept {
+					return { first, second };
+				}
+			};
+
+			Proxy operator*() noexcept {
+
+				return Proxy{ m_keys[m_index], m_values[m_index] };
+			}
+
+			Iterator& operator++() noexcept {
+				++m_index;
+				advance();
+				return *this;
+			}
+
+			bool operator==(const Iterator& other) const noexcept {
+				return m_index == other.m_index;
+			}
+			bool operator!=(const Iterator& other) const noexcept {
+				return !(*this == other);
+			}
 		};
 
-		Iterator begin() {
+		Iterator begin() const noexcept {
 			return Iterator(m_keys.get(), m_values.get(), m_used.get(), 0, this->m_data_size);
 		}
 
-		Iterator end() {
+		Iterator end() const noexcept {
 			return Iterator(m_keys.get(), m_values.get(), m_used.get(), this->m_data_size, this->m_data_size);
 		}
 

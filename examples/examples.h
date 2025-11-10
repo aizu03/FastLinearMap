@@ -10,26 +10,12 @@
 
 namespace MapExamples
 {
-
-#pragma region Util
-
 	struct Coordinates
 	{
 		float x = 0;
 		float y = 0;
 		float z = 0;
 	};
-
-	static size_t CustomHash(const std::string& key)
-	{
-		size_t hash = 1;
-		for (const char chr : key)
-			hash += (size_t)chr * 33;
-
-		return hash;
-	}
-
-#pragma endregion
 
 	using namespace LinearProbing;
 
@@ -77,11 +63,12 @@ namespace MapExamples
 		assert(!map.Contains(4));
 		assert(!map.Contains(5));
 
-		// Get and check if the return value has valid contents. Must be a reference
-		const std::string& invalid = map.Get(999);
-		if (map.IsValid(invalid))
+		// Get and check if the return value has valid contents.
+		const std::string& unknown = map.Get(999);
+		if (map.IsValid(unknown))
 		{
 			// process further ...
+			// Important: "unknown" must be a string& to make "IsValid" work.
 		}
 
 		// Try inserting. Useful for filtering
@@ -113,12 +100,13 @@ namespace MapExamples
 			if (!filtered_strings.TryEmplace(string))
 				continue;
 
-			// process further
-			std::cout << "String: " << string << "\n";
+			std::cout << "Inserted: " << string << "\n";
 		}
 
 		for (auto& string : filtered_strings)
-			std::cout << "Unique: " << string << "\n";
+		{
+			// process further
+		}
 
 
 		// Recommended order:
@@ -165,6 +153,15 @@ namespace MapExamples
 		{
 			std::cout << "Key: " << key << ", Value: " << value << "\n";
 		}
+	}
+
+	static size_t CustomHash(const std::string& key)
+	{
+		size_t hash = 1;
+		for (const char chr : key)
+			hash += (size_t)chr * 31;
+
+		return hash;
 	}
 
 	static void GenericMap()
