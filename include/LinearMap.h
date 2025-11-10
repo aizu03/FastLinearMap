@@ -123,17 +123,17 @@ namespace LinearProbing
 
 			virtual ~LinearHash() = default;
 
-			[[nodiscard]] size_t Size() const
+			[[nodiscard]] size_t Size() const noexcept
 			{
 				return m_count;
 			}
 
-			[[nodiscard]] size_t Capacity() const
+			[[nodiscard]] size_t Capacity() const noexcept
 			{
 				return m_data_size;
 			}
 
-			[[nodiscard]] double LoadFactor() const
+			[[nodiscard]] double LoadFactor() const noexcept
 			{
 				return static_cast<double>(m_count) / static_cast<double>(m_data_size);
 			}
@@ -151,7 +151,7 @@ namespace LinearProbing
 			/// Will grow or shrink the map to 'new_capacity', while keeping existing data.
 			/// </summary>
 			/// <param name="new_capacity"></param>
-			void Rehash(size_t new_capacity)
+			void Rehash(size_t new_capacity) 
 			{
 				new_capacity = FormatCapacity(new_capacity);
 
@@ -161,14 +161,14 @@ namespace LinearProbing
 				this->Resize(new_capacity);
 			}
 
-			void SetHashFunction(HashFunction<T> hash_func)
+			void SetHashFunction(HashFunction<T> hash_func) noexcept
 			{
 				m_hash = hash_func;
 			}
 
 		protected:
 
-			void SetDefaultHash()
+			void SetDefaultHash() noexcept
 			{
 				m_hash = [](const T& key)
 					{
@@ -178,9 +178,20 @@ namespace LinearProbing
 
 			[[nodiscard]] size_t InvokeHash(const T& key) const noexcept
 			{
-				if constexpr (std::is_arithmetic_v<T>)
+				if constexpr (std::is_integral_v<T>)
 				{
-					return static_cast<size_t>(key);
+					return static_cast<uint64_t>(key);
+				}
+				else if constexpr (std::is_floating_point_v<T>)
+				{
+					if constexpr (sizeof(T) == 4)
+					{
+						return static_cast<uint64_t>(std::bit_cast<uint32_t>(key));
+					}
+					else
+					{
+						return std::bit_cast<uint64_t>(key);
+					}
 				}
 				else
 				{
@@ -188,7 +199,7 @@ namespace LinearProbing
 				}
 			}
 
-			[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const T& key, const size_t data_size)
+			[[nodiscard]] std::tuple<size_t, size_t> GetSlot(const T& key, const size_t data_size) noexcept
 			{
 				if (!m_hash)
 					UNREACHABLE();
@@ -205,7 +216,7 @@ namespace LinearProbing
 				return std::make_tuple(start, last_index);
 			}
 
-			static size_t HashImpl(const size_t n, const size_t data_size)
+			static size_t HashImpl(const size_t n, const size_t data_size) noexcept
 			{
 				auto x = n + 1; // fix for 0 keys
 				constexpr int hash_id = 3;
@@ -242,7 +253,7 @@ namespace LinearProbing
 				return x;
 			}
 
-			static size_t FormatCapacity(size_t n)
+			static size_t FormatCapacity(size_t n) noexcept
 			{
 				n = (std::max)(n, 8ull);                     // minimum size
 				size_t next = 1ull << std::bit_width(n - 1); // next power of two
@@ -259,7 +270,7 @@ namespace LinearProbing
 				throw std::runtime_error("not implemented");
 			}
 
-			void EnsureCapacity(const size_t count)
+			void EnsureCapacity(const size_t count) noexcept
 			{
 				const auto free = this->m_data_size - this->m_count;
 				const size_t free_lf = (size_t)((double)free * max_load_factor);
@@ -460,13 +471,13 @@ namespace LinearProbing
 #endif
 		}
 
-		V& operator[](const K& key)
+		V& operator[](const K& key) noexcept
 		{
 			return GetOrCreate(key, [this] {return m_default_value; });
 		}
 
-		const V& operator[](const K& key) const {
-
+		const V& operator[](const K& key) const noexcept
+		{
 			return Get(key);
 		}
 
@@ -487,7 +498,7 @@ namespace LinearProbing
 		/// <summary>
 		/// Clear all data from the map, while keeping the allocated memory.
 		/// </summary>
-		void Clear() final
+		void Clear() noexcept final
 		{
 			std::fill_n(m_used.get(), this->m_data_size, false);
 			std::fill_n(m_keys.get(), this->m_data_size, 0);
@@ -500,7 +511,7 @@ namespace LinearProbing
 		/// Don't use this before using 'EmplaceAll'. Because, it will ensure capacity internally.
 		/// </summary>
 		/// <param name="capacity">Desired map size</param>
-		void Reserve(const size_t capacity) final
+		void Reserve(const size_t capacity) noexcept final
 		{
 			auto size = this->FormatCapacity(capacity);
 			m_keys = std::make_unique<K[]>(size);
@@ -510,7 +521,7 @@ namespace LinearProbing
 			this->m_data_size = size;
 		}
 
-		[[nodiscard]] bool Contains(const K& key)
+		[[nodiscard]] bool Contains(const K& key) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -523,7 +534,7 @@ namespace LinearProbing
 			}
 		}
 
-		[[nodiscard]] V& Get(const K& key)
+		[[nodiscard]] V& Get(const K& key) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start;; i = (i + 1) & last_index)
@@ -545,7 +556,7 @@ namespace LinearProbing
 		/// <param name="create_func"></param>
 		/// <returns></returns>
 		template <typename KeyVal, typename F> requires std::is_invocable_v<F>
-		V& GetOrCreate(KeyVal&& key, F&& create_func)
+		V& GetOrCreate(KeyVal&& key, F&& create_func) noexcept
 		{
 			return GetOrCreateImpl(
 				std::forward<KeyVal>(key),
@@ -554,7 +565,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyVal, typename... Args>
-		V& GetOrCreate(KeyVal&& key, Args&&... args)
+		V& GetOrCreate(KeyVal&& key, Args&&... args) noexcept
 		{
 			return GetOrCreateImpl(
 				std::forward<KeyVal>(key),
@@ -563,7 +574,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyVal, typename... Args>
-		bool TryEmplace(KeyVal&& key, Args&&... args)
+		bool TryEmplace(KeyVal&& key, Args&&... args) noexcept
 		{
 			return TryEmplaceImpl(
 				std::forward<KeyVal>(key),
@@ -572,7 +583,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyVal, typename F> requires std::is_invocable_v<F>
-		bool TryEmplace(KeyVal&& key, F&& create_func)
+		bool TryEmplace(KeyVal&& key, F&& create_func) noexcept
 		{
 			return TryEmplaceImpl(
 				std::forward<KeyVal>(key),
@@ -581,7 +592,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyType, typename ValType>
-		void Emplace(KeyType&& key, ValType&& value)
+		void Emplace(KeyType&& key, ValType&& value) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -601,7 +612,7 @@ namespace LinearProbing
 		}
 
 		template <typename Tuple>
-		void Emplace(Tuple&& tuple) requires (std::tuple_size_v<std::remove_cvref_t<Tuple>> == 2)
+		void Emplace(Tuple&& tuple) noexcept requires (std::tuple_size_v<std::remove_cvref_t<Tuple>> == 2)
 		{
 			std::apply([this]<typename T0, typename T1>(T0 && key, T1 && value) {
 				this->Emplace(std::forward<T0>(key), std::forward<T1>(value));
@@ -611,7 +622,7 @@ namespace LinearProbing
 		template <std::ranges::input_range KeyRange, std::ranges::input_range ValueRange>
 			requires std::convertible_to<std::ranges::range_reference_t<KeyRange>, K>&&
 		std::convertible_to<std::ranges::range_reference_t<ValueRange>, V>
-			void EmplaceAll(KeyRange& keys, ValueRange& values)
+			void EmplaceAll(KeyRange& keys, ValueRange& values) noexcept
 		{
 			auto key_it = std::begin(keys);
 			auto key_end = std::end(keys);
@@ -633,7 +644,7 @@ namespace LinearProbing
 				{ std::get<0>(p) } -> std::convertible_to<K>;
 				{ std::get<1>(p) } -> std::convertible_to<V>;
 		}
-		void EmplaceAll(PairRange& pairs)
+		void EmplaceAll(PairRange& pairs) noexcept
 		{
 			this->EnsureCapacity(std::ranges::distance(pairs));
 
@@ -645,7 +656,7 @@ namespace LinearProbing
 			}
 		}
 
-		void EmplaceAll(K* keys, V* values, const size_t count)
+		void EmplaceAll(K* keys, V* values, const size_t count) noexcept
 		{
 			if (!keys || !values || count == 0)
 				return;
@@ -660,7 +671,7 @@ namespace LinearProbing
 			}
 		}
 
-		bool Erase(const K& key)
+		bool Erase(const K& key) noexcept
 		{
 			auto print_array = [this]<typename T>(const bool before, std::unique_ptr<T>&arr) -> void
 			{
@@ -856,7 +867,7 @@ namespace LinearProbing
 			}
 		}
 
-		void Resize(const size_t new_size) override
+		void Resize(const size_t new_size) noexcept override
 		{
 			m_keys_new = std::make_unique<K[]>(new_size);
 			m_values_new = std::make_unique<V[]>(new_size);
@@ -878,7 +889,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyVal, typename ValueCreator>
-		V& GetOrCreateImpl(KeyVal&& key, ValueCreator&& make_value)
+		V& GetOrCreateImpl(KeyVal&& key, ValueCreator&& make_value) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -908,7 +919,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyVal, typename ValueCreator>
-		bool TryEmplaceImpl(KeyVal&& key, ValueCreator&& make_value)
+		bool TryEmplaceImpl(KeyVal&& key, ValueCreator&& make_value) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -925,7 +936,7 @@ namespace LinearProbing
 		}
 
 		template <typename A, typename B>
-		void EmplaceNoGrow(A&& key, B&& value)
+		void EmplaceNoGrow(A&& key, B&& value) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -945,7 +956,7 @@ namespace LinearProbing
 		}
 
 		template <typename A, typename B>
-		void Insert(A&& key, B&& new_value, size_t i)
+		void Insert(A&& key, B&& new_value, size_t i) noexcept
 		{
 			LM_ASSERT_INTEGRITY();
 			m_used[i] = 1;
@@ -959,7 +970,7 @@ namespace LinearProbing
 		}
 
 		template <typename A, typename B>
-		void InsertAndGrow(A&& key, B&& new_value, size_t i)
+		void InsertAndGrow(A&& key, B&& new_value, size_t i) noexcept
 		{
 			LM_ASSERT_INTEGRITY();
 			m_used[i] = 1;
@@ -970,7 +981,7 @@ namespace LinearProbing
 		}
 
 		template <typename A, typename B>
-		void InsertNoGrow(A&& key, B&& new_value, size_t i)
+		void InsertNoGrow(A&& key, B&& new_value, size_t i) noexcept
 		{
 			LM_ASSERT_INTEGRITY();
 			m_used[i] = 1;
@@ -980,7 +991,7 @@ namespace LinearProbing
 		}
 
 		template<typename A, typename B>
-		void EmplaceNewSize(A&& key, B&& value, const size_t new_size)
+		void EmplaceNewSize(A&& key, B&& value, const size_t new_size) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, new_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -1122,7 +1133,7 @@ namespace LinearProbing
 		/// <summary>
 		/// Clear all data from the map, while keeping the allocated memory.
 		/// </summary>
-		void Clear() final
+		void Clear() noexcept final
 		{
 			std::fill_n(m_used.get(), this->m_data_size, false);
 			std::fill_n(m_keys.get(), this->m_data_size, 0);
@@ -1135,7 +1146,7 @@ namespace LinearProbing
 		/// Don't use this before using 'EmplaceAll'. Because, it will ensure capacity internally.
 		/// </summary>
 		/// <param name="capacity">Desired map size</param>
-		void Reserve(const size_t capacity) final
+		void Reserve(const size_t capacity) noexcept final
 		{
 			auto new_size = this->FormatCapacity(capacity);
 			m_keys = std::make_unique<K[]>(new_size);
@@ -1144,7 +1155,7 @@ namespace LinearProbing
 			this->m_data_size = new_size;
 		}
 
-		[[nodiscard]] bool Contains(const K& key)
+		[[nodiscard]] bool Contains(const K& key) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -1158,7 +1169,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyType>
-		void Emplace(KeyType&& key)
+		void Emplace(KeyType&& key) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -1172,7 +1183,7 @@ namespace LinearProbing
 		}
 		template <std::ranges::input_range KeyRange>
 			requires std::convertible_to<std::ranges::range_value_t<KeyRange>, K>
-		void EmplaceAll(KeyRange& keys)
+		void EmplaceAll(KeyRange& keys) noexcept
 		{
 			auto key_it = std::begin(keys);
 			auto key_end = std::end(keys);
@@ -1185,7 +1196,7 @@ namespace LinearProbing
 			}
 		}
 
-		void EmplaceAll(K* keys, const size_t count)
+		void EmplaceAll(K* keys, const size_t count) noexcept
 		{
 			if (!keys || count == 0)
 				return;
@@ -1200,7 +1211,7 @@ namespace LinearProbing
 		}
 
 		template <typename KeyVal>
-		bool TryEmplace(KeyVal&& key)
+		bool TryEmplace(KeyVal&& key) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start;; i = (i + 1) & last_index)
@@ -1216,7 +1227,7 @@ namespace LinearProbing
 			}
 		}
 
-		bool Erase(const K& key)
+		bool Erase(const K& key) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			auto inc = 0; // offset to start index
@@ -1304,23 +1315,23 @@ namespace LinearProbing
 
 		class Iterator {
 		public:
-			Iterator(K* keys, uint8_t* used, const size_t index, const size_t size)
+			Iterator(K* keys, uint8_t* used, const size_t index, const size_t size) noexcept
 				: m_keys(keys), m_used(used), m_index(index), m_size(size)
 			{
 				advance();
 			}
 
-			Iterator& operator++() {
+			Iterator& operator++() noexcept {
 				++m_index;
 				advance();
 				return *this;
 			}
 
-			bool operator!=(const Iterator& other) const {
+			bool operator!=(const Iterator& other) const noexcept {
 				return m_index != other.m_index;
 			}
 
-			const K& operator*() const {
+			const K& operator*() const noexcept {
 				return m_keys[m_index];
 			}
 
@@ -1361,7 +1372,7 @@ namespace LinearProbing
 			}
 		}
 
-		void Resize(const size_t new_size) override
+		void Resize(const size_t new_size) noexcept override
 		{
 			m_keys_new = std::make_unique<K[]>(new_size);
 			m_used_new = std::make_unique<uint8_t[]>(new_size);
@@ -1381,7 +1392,7 @@ namespace LinearProbing
 		}
 
 		template <typename A>
-		void EmplaceNoGrow(A&& key)
+		void EmplaceNoGrow(A&& key) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, this->m_data_size);
 			for (auto i = start; ; i = (i + 1) & last_index)
@@ -1395,7 +1406,7 @@ namespace LinearProbing
 		}
 
 		template <typename A>
-		void Insert(A&& key, size_t i)
+		void Insert(A&& key, size_t i) noexcept
 		{
 			m_used[i] = 1;
 			m_keys[i] = std::forward<A>(key);
@@ -1407,15 +1418,15 @@ namespace LinearProbing
 		}
 
 		template <typename A>
-		void InsertNoGrow(A&& key, size_t i)
-		{
+		void InsertNoGrow(A&& key, size_t i) noexcept
+		{ 
 			m_used[i] = 1;
 			m_keys[i] = std::forward<A>(key);
 			++this->m_count;
 		}
 
 		template <typename A>
-		void EmplaceNewSize(A&& key, const size_t new_size)
+		void EmplaceNewSize(A&& key, const size_t new_size) noexcept
 		{
 			auto [start, last_index] = this->GetSlot(key, new_size);
 			for (auto i = start; ; i = (i + 1) & last_index)

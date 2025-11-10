@@ -105,6 +105,22 @@ public:
 NO_OPTIMIZE_BEGIN
 static void TestBasic()
 {
+	LinearCoreMap<float, int> map_fp;
+
+	for (int i = 1; i <= 100; ++i)
+	{
+		auto f = (float)i / 100.0F;
+		map_fp.Emplace(f, i);
+	}
+
+	for (int i = 1; i <= 100; ++i)
+	{
+		auto f = (float)i / 100.0F;
+		auto value = map_fp.Get(f);
+		assert_always(value == i);
+	}
+
+
 	LinearMap<int> map(8); // small initial size to force resize
 
 	auto v = map.GetOrCreate(1, []
@@ -703,7 +719,7 @@ static void HashTest()
 NO_OPTIMIZE_BEGIN
 int main()
 {
-	MapExamples::RunExamples();
+	//MapExamples::RunExamples();
 	RunAllTests();
 
 #if NDEBUG
