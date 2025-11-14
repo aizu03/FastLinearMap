@@ -1,6 +1,6 @@
 /*
 ----------------------------------------------------------------------------------------
-LinearHash - A Simple Header-Only, Cache-Friendly, Linear-Probing Hash Map Collection
+FastLinearMap - A Simple Header-Only, Cache-Friendly, Linear-Probing Hash Map Collection
 ----------------------------------------------------------------------------------------
 Author: [aizu03]
 License: MIT (free to use, modify, and distribute)
