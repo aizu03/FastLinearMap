@@ -1,6 +1,10 @@
+⚡Fast Linear Hashing
+-----------------
+
 LinearMap is a fast, and bare bones, open-addressing hash map implementation that uses
 linear probing rather than the traditional "bucket + linked list" approach
 found in many standard hash maps, like std::unordered_map
+
 
 Why it's faster
 -----------------
@@ -61,3 +65,14 @@ map.IsValid(value_ref);
 map.Emplace(3, 321);
 // and much more
 ```
+
+### 📄 License
+This project is licensed under the MIT License.
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+### 💖 Support / Donations
+If you enjoy using LinearMap and want to support my projects 😊, you can donate:
+
+- ☕ **Ko-fi:** [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/aizu03)
+- 🪙 **BTC:** `bc1qpnaf9vhcjd8zcv68hu5w8sdwx5ugtff93u773z`  
+
