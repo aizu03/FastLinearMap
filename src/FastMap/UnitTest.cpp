@@ -50,7 +50,6 @@ struct Coordinates
 
 using namespace LinearProbing;
 
-
 #if defined(LMAP_DEV)
 
 template <class T>
